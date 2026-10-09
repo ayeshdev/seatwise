@@ -332,10 +332,12 @@ jobs:
             if c "$DESK/api/actuator/health/readiness" | grep -q '"UP"'; then break; fi
             sleep 6
           done
-          c "$DESK/api/actuator/health/readiness" | grep -q '"UP"'
-          c "$DESK/" | grep -qi '<sw-root'
-          c "$IDP/realms/seatwise/.well-known/openid-configuration" > /dev/null
+          # Each check says what it tests, so a failure names the broken piece.
+          echo "check: API readiness via the desk";  c "$DESK/api/actuator/health/readiness" | grep -q '"UP"'
+          echo "check: desk serves the app";          c "$DESK/" | grep -qi '<sw-root'
+          echo "check: Keycloak realm on $IDP";       c "$IDP/realms/seatwise/.well-known/openid-configuration" > /dev/null
           if [ -n "$EXPECTED" ]; then
+            echo "check: running build is $EXPECTED"
             RUNNING=$(c "$DESK/api/actuator/info" | jq -r '."git-sha"')
             echo "running=$RUNNING expected=$EXPECTED"
             [ "$RUNNING" = "$EXPECTED" ]
