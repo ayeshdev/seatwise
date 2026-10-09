@@ -1,0 +1,66 @@
+/* Design tokens. Colours are RGB channels so Tailwind can apply alpha: rgb(var(--canvas) / <alpha-value>). */
+
+:root {
+  --canvas: 250 249 245; /* #FAF9F5 */
+  --surface: 255 255 255; /* #FFFFFF */
+  --surface-muted: 240 238 230; /* #F0EEE6 */
+  --ink: 31 30 29; /* #1F1E1D */
+  --ink-muted: 107 105 99; /* #6B6963 */
+  --line: 229 226 217; /* #E5E2D9 */
+  --accent: 201 100 66; /* #C96442 */
+  --accent-soft: 245 230 221; /* #F5E6DD */
+  --ok: 79 122 90; /* #4F7A5A */
+  --warn: 183 121 31; /* #B7791F */
+  --full: 164 68 46; /* #A4442E */
+  --quiet: 138 135 126; /* #8A877E */
+
+  --radius-card: 10px;
+  --radius-button: 8px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --canvas: 38 38 36; /* #262624 */
+    --surface: 48 48 46; /* #30302E */
+    --surface-muted: 58 57 54; /* #3A3936 */
+    --ink: 245 244 239; /* #F5F4EF */
+    --ink-muted: 183 181 172; /* #B7B5AC */
+    --line: 69 68 63; /* #45443F */
+    --accent: 217 119 87; /* #D97757 */
+    --accent-soft: 74 51 41; /* #4A3329 */
+    --ok: 127 174 137; /* #7FAE89 */
+    --warn: 217 165 72; /* #D9A548 */
+    --full: 224 138 112; /* #E08A70 */
+    --quiet: 156 153 143; /* #9C998F */
+  }
+}
+
+:root[data-theme="dark"] {
+  --canvas: 38 38 36; /* #262624 */
+  --surface: 48 48 46; /* #30302E */
+  --surface-muted: 58 57 54; /* #3A3936 */
+  --ink: 245 244 239; /* #F5F4EF */
+  --ink-muted: 183 181 172; /* #B7B5AC */
+  --line: 69 68 63; /* #45443F */
+  --accent: 217 119 87; /* #D97757 */
+  --accent-soft: 74 51 41; /* #4A3329 */
+  --ok: 127 174 137; /* #7FAE89 */
+  --warn: 217 165 72; /* #D9A548 */
+  --full: 224 138 112; /* #E08A70 */
+  --quiet: 156 153 143; /* #9C998F */
+}
+
+:root[data-theme="light"] {
+  --canvas: 250 249 245; /* #FAF9F5 */
+  --surface: 255 255 255; /* #FFFFFF */
+  --surface-muted: 240 238 230; /* #F0EEE6 */
+  --ink: 31 30 29; /* #1F1E1D */
+  --ink-muted: 107 105 99; /* #6B6963 */
+  --line: 229 226 217; /* #E5E2D9 */
+  --accent: 201 100 66; /* #C96442 */
+  --accent-soft: 245 230 221; /* #F5E6DD */
+  --ok: 79 122 90; /* #4F7A5A */
+  --warn: 183 121 31; /* #B7791F */
+  --full: 164 68 46; /* #A4442E */
+  --quiet: 138 135 126; /* #8A877E */
+}

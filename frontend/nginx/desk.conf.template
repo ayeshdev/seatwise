@@ -1,0 +1,77 @@
+# Rendered by envsubst at container start; only ${API_UPSTREAM} is substituted.
+# The upstream host is resolved when nginx starts, so the API must be resolvable then.
+
+server {
+    listen 80;
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    gzip on;
+    gzip_types text/plain text/css application/javascript application/json image/svg+xml;
+
+    include /etc/nginx/snippets/security-headers.conf;
+
+    location = /healthz {
+        include /etc/nginx/snippets/security-headers.conf;
+        default_type text/plain;
+        return 200 'ok';
+    }
+
+    # Runtime settings written at container start; never cache.
+    location = /config.json {
+        include /etc/nginx/snippets/security-headers.conf;
+        add_header Cache-Control "no-store" always;
+    }
+
+    # Only health and info are reachable from outside; the rest of /actuator is blocked.
+    location /api/actuator/health {
+        include /etc/nginx/snippets/security-headers.conf;
+        proxy_pass ${API_UPSTREAM}/actuator/health;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /api/actuator/info {
+        include /etc/nginx/snippets/security-headers.conf;
+        proxy_pass ${API_UPSTREAM}/actuator/info;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /api/actuator/ {
+        return 404;
+    }
+
+    # The /api prefix is kept: the API serves /api/v1/...
+    location /api/ {
+        include /etc/nginx/snippets/security-headers.conf;
+        client_max_body_size 1m;
+        proxy_pass ${API_UPSTREAM};
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Hashed build output (main-ABCD1234.js and friends) never changes.
+    location ~ "^/.+-[A-Z0-9]{8}\.(?:js|css|woff2?|png|jpe?g|svg)$" {
+        include /etc/nginx/snippets/security-headers.conf;
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+        try_files $uri =404;
+    }
+
+    location = /index.html {
+        include /etc/nginx/snippets/security-headers.conf;
+        add_header Cache-Control "no-cache" always;
+    }
+
+    # Single-page app fallback.
+    location / {
+        include /etc/nginx/snippets/security-headers.conf;
+        add_header Cache-Control "no-cache" always;
+        try_files $uri $uri/ /index.html;
+    }
+}
