@@ -62,7 +62,8 @@ test.describe('Manager', () => {
     } else {
       await expect(activity.getByText('Edited').first()).toBeVisible();
       await activity.getByRole('button', { name: 'Details' }).first().click();
-      await expect(activity.getByText(newTitle)).toBeVisible();
+      // The new title appears in the summary sentence and in the expanded change list.
+      await expect(activity.getByText(newTitle).first()).toBeVisible();
     }
   });
 
