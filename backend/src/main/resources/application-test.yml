@@ -4,3 +4,6 @@ seatwise:
   oidc:
     issuer: http://localhost:0/realms/seatwise-test
     jwks-uri: http://localhost:0/realms/seatwise-test/protocol/openid-connect/certs
+  # No Keycloak in tests: the first-Admin bootstrap (and demo seeding) must not run.
+  bootstrap:
+    enabled: false

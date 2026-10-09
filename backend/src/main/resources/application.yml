@@ -55,10 +55,15 @@ seatwise:
     provisioner-client-id: seatwise-provisioner
     provisioner-secret: ${SEATWISE_PROVISIONER_SECRET:dev-provisioner-secret}
   bootstrap:
+    enabled: ${SEATWISE_BOOTSTRAP_ENABLED:true}
     admin-email: ${SEATWISE_BOOTSTRAP_ADMIN_EMAIL:admin@seatwise.local}
     admin-password: ${SEATWISE_BOOTSTRAP_ADMIN_PASSWORD:Admin#Seatwise1}
     admin-full-name: ${SEATWISE_BOOTSTRAP_ADMIN_FULL_NAME:Centre Administrator}
     password-temporary: ${SEATWISE_BOOTSTRAP_PASSWORD_TEMPORARY:false}
+  # Only read when the demo profile is active (DemoStaffSeeder).
+  demo:
+    manager-password: ${SEATWISE_DEMO_MANAGER_PASSWORD:Manager#Seatwise1}
+    staff-password: ${SEATWISE_DEMO_STAFF_PASSWORD:Staff#Seatwise1}
   search:
     url: ${SEATWISE_SEARCH_URL:http://localhost:7710}
     master-key: ${SEATWISE_SEARCH_MASTER_KEY:dev-search-master-key-change-me}

@@ -41,7 +41,9 @@ dependencies {
     implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.3'
     implementation 'com.meilisearch.sdk:meilisearch-java:0.22.1'
 
-    runtimeOnly 'org.postgresql:postgresql'
+    // Compile scope (not runtimeOnly) because ProblemDetailsAdvice reads the
+    // violated constraint name from PSQLException to pick a stable error code.
+    implementation 'org.postgresql:postgresql'
 
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.springframework.boot:spring-boot-webmvc-test'
