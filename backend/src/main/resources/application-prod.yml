@@ -1,0 +1,5 @@
+# One JSON object per line so the log shipper needs no parsing rules.
+logging:
+  structured:
+    format:
+      console: ecs

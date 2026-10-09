@@ -1,0 +1,65 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: seatwise-api
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5442/seatwise}
+    username: ${SPRING_DATASOURCE_USERNAME:seatwise}
+    password: ${SPRING_DATASOURCE_PASSWORD:seatwise}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    locations: classpath:db/migration
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  info:
+    env:
+      enabled: true
+    build:
+      enabled: true
+
+# Surfaced by /actuator/info so a pipeline can prove which build is running.
+info:
+  git-sha: ${SEATWISE_GIT_SHA:local}
+
+springdoc:
+  api-docs:
+    path: /api/v1/openapi.json
+  swagger-ui:
+    enabled: false
+
+seatwise:
+  oidc:
+    issuer: ${SEATWISE_OIDC_ISSUER:http://localhost:8281/realms/seatwise}
+    jwks-uri: ${SEATWISE_OIDC_JWKS:http://localhost:8281/realms/seatwise/protocol/openid-connect/certs}
+    audience: seatwise-api
+  keycloak:
+    admin-base-url: ${SEATWISE_KEYCLOAK_ADMIN_BASE:http://localhost:8281}
+    realm: seatwise
+    provisioner-client-id: seatwise-provisioner
+    provisioner-secret: ${SEATWISE_PROVISIONER_SECRET:dev-provisioner-secret}
+  bootstrap:
+    admin-email: ${SEATWISE_BOOTSTRAP_ADMIN_EMAIL:admin@seatwise.local}
+    admin-password: ${SEATWISE_BOOTSTRAP_ADMIN_PASSWORD:Admin#Seatwise1}
+    admin-full-name: ${SEATWISE_BOOTSTRAP_ADMIN_FULL_NAME:Centre Administrator}
+    password-temporary: ${SEATWISE_BOOTSTRAP_PASSWORD_TEMPORARY:false}
+  search:
+    url: ${SEATWISE_SEARCH_URL:http://localhost:7710}
+    master-key: ${SEATWISE_SEARCH_MASTER_KEY:dev-search-master-key-change-me}
+  centre-timezone: ${SEATWISE_CENTRE_TIMEZONE:Europe/London}
