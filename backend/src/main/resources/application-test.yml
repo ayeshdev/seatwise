@@ -7,3 +7,7 @@ seatwise:
   # No Keycloak in tests: the first-Admin bootstrap (and demo seeding) must not run.
   bootstrap:
     enabled: false
+  # No Meilisearch either: search answers from PostgreSQL (searchMode "fallback").
+  # WorkshopSearchIT opts back in with its own container.
+  search:
+    enabled: false
