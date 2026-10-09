@@ -9,7 +9,7 @@ const BASE =
   'inline-flex w-full items-center justify-center gap-2 rounded-button border font-medium transition-colors duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-60';
 
 const VARIANTS: Record<ButtonVariant, string> = {
-  primary: 'border-accent bg-accent text-surface hover:bg-accent/90',
+  primary: 'border-accent bg-accent text-on-accent hover:bg-accent/90',
   secondary: 'border-line bg-surface text-ink hover:bg-surface-muted',
   ghost: 'border-transparent bg-transparent text-ink hover:bg-surface-muted',
   danger: 'border-full bg-surface text-full hover:bg-full hover:text-surface',

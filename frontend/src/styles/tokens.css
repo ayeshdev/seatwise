@@ -7,7 +7,8 @@
   --ink: 31 30 29; /* #1F1E1D */
   --ink-muted: 107 105 99; /* #6B6963 */
   --line: 229 226 217; /* #E5E2D9 */
-  --accent: 201 100 66; /* #C96442 */
+  --accent: 176 83 47; /* #B0532F (darkened from #C96442 for AA text contrast) */
+  --on-accent: 255 255 255; /* #FFFFFF */
   --accent-soft: 245 230 221; /* #F5E6DD */
   --ok: 79 122 90; /* #4F7A5A */
   --warn: 183 121 31; /* #B7791F */
@@ -27,6 +28,7 @@
     --ink-muted: 183 181 172; /* #B7B5AC */
     --line: 69 68 63; /* #45443F */
     --accent: 217 119 87; /* #D97757 */
+    --on-accent: 31 30 29; /* #1F1E1D */
     --accent-soft: 74 51 41; /* #4A3329 */
     --ok: 127 174 137; /* #7FAE89 */
     --warn: 217 165 72; /* #D9A548 */
@@ -43,6 +45,7 @@
   --ink-muted: 183 181 172; /* #B7B5AC */
   --line: 69 68 63; /* #45443F */
   --accent: 217 119 87; /* #D97757 */
+  --on-accent: 31 30 29; /* #1F1E1D */
   --accent-soft: 74 51 41; /* #4A3329 */
   --ok: 127 174 137; /* #7FAE89 */
   --warn: 217 165 72; /* #D9A548 */
@@ -57,7 +60,8 @@
   --ink: 31 30 29; /* #1F1E1D */
   --ink-muted: 107 105 99; /* #6B6963 */
   --line: 229 226 217; /* #E5E2D9 */
-  --accent: 201 100 66; /* #C96442 */
+  --accent: 176 83 47; /* #B0532F (darkened from #C96442 for AA text contrast) */
+  --on-accent: 255 255 255; /* #FFFFFF */
   --accent-soft: 245 230 221; /* #F5E6DD */
   --ok: 79 122 90; /* #4F7A5A */
   --warn: 183 121 31; /* #B7791F */

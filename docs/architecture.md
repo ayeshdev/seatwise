@@ -632,7 +632,8 @@ properties feeding the Tailwind theme in `tailwind.config.js`):
 | `--ink` | `#1F1E1D` | `#F5F4EF` | Primary text |
 | `--ink-muted` | `#6B6963` | `#B7B5AC` | Secondary text, captions |
 | `--line` | `#E5E2D9` | `#45443F` | Borders, dividers |
-| `--accent` | `#C96442` (terracotta) | `#D97757` | Primary buttons, links, focus ring, seat meter fill |
+| `--accent` | `#B0532F` (terracotta) | `#D97757` | Primary buttons, links, focus ring, seat meter fill |
+| `--on-accent` | `#FFFFFF` | `#1F1E1D` | Text on filled accent buttons |
 | `--accent-soft` | `#F5E6DD` | `#4A3329` | Selected chips, active nav |
 | `--ok` | `#4F7A5A` (sage) | `#7FAE89` | OPEN badge |
 | `--warn` | `#B7791F` (ochre) | `#D9A548` | "1–3 seats left" |

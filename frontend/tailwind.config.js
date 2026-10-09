@@ -15,6 +15,7 @@ module.exports = {
         line: token('line'),
         accent: token('accent'),
         'accent-soft': token('accent-soft'),
+        'on-accent': token('on-accent'),
         ok: token('ok'),
         warn: token('warn'),
         full: token('full'),

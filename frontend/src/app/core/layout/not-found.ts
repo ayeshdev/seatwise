@@ -16,7 +16,7 @@ import { EmptyState } from '@shared/ui/empty-state';
     >
       <a
         [routerLink]="home()"
-        class="inline-block rounded-button border border-accent bg-accent px-4 py-2 font-medium text-surface"
+        class="inline-block rounded-button border border-accent bg-accent px-4 py-2 font-medium text-on-accent"
       >
         Go to your home page
       </a>
