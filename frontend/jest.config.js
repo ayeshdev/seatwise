@@ -16,6 +16,7 @@ module.exports = {
       { tsconfig: '<rootDir>/tsconfig.spec.json', stringifyContentPathRegex: '\\.(html|svg)$' },
     ],
   },
-  transformIgnorePatterns: ['node_modules/(?!.*\\.mjs$|keycloak-js|keycloak-angular)'],
+  // pnpm nests packages under node_modules/.pnpm/<pkg>@<ver>/node_modules/<pkg>, so match anywhere ahead.
+  transformIgnorePatterns: ['node_modules/(?!.*(\\.mjs$|keycloak-js|keycloak-angular))'],
   collectCoverageFrom: ['src/app/**/*.ts', '!src/app/**/*.spec.ts'],
 };
