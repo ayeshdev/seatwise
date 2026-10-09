@@ -12,9 +12,15 @@ source.** What CI tested is exactly what runs.
 
 - The GitHub repository is **private**, so its GHCR packages are private too
   and Dokploy needs a registry credential (§5.2).
-- Dokploy runs as a Docker container on the production server. Whether its
-  API is exposed publicly is unknown, and it doesn't need to be: the deploy
-  runner calls it on `127.0.0.1` (§4a).
+- Dokploy runs as a Docker Swarm service on the production server, published
+  on host port 3000 (checked 2026-10-09, §4a). Its UI is served over HTTPS at
+  `https://dok.dev.waahanasale.lk` through Traefik, and port 3000 is closed in
+  the cloud firewall. The deploy runner calls the API on
+  `http://127.0.0.1:3000`, so the API never has to be reachable from outside.
+- The server is **`aarch64`** (ARM), so images are built for `linux/arm64`
+  (§4b).
+- Public domains: desk `https://desk.waahanasale.lk`, identity provider
+  `https://auth.waahanasale.lk`.
 - Builds stay off the production box. It is small and serves live traffic,
   so only the two lightweight `curl` jobs run there.
 
@@ -65,9 +71,20 @@ quality gate.
 | Actions → Runners | One repository-level self-hosted runner with the extra label `seatwise-deploy` (§4a) |
 | Environment `production` | Deployment branches: `main` only. Optional: a required reviewer for a manual gate |
 | Environment secrets (`production`) | `DOKPLOY_API_KEY` (Dokploy → Settings → Profile → API/CLI → generate) |
-| Environment variables (`production`) | `DOKPLOY_URL` = `http://127.0.0.1:3000` (loopback on the server, §4a), `DOKPLOY_APP_ID_API`, `DOKPLOY_APP_ID_DESK`, `DOKPLOY_APP_ID_IDP`, `PUBLIC_DESK_URL` (`https://desk.example.com`), `PUBLIC_IDP_URL` (`https://auth.example.com`) |
-| Repository variables (image build) | `IMAGE_PLATFORM` = `linux/arm64` or `linux/amd64`, `IMAGE_RUNNER` = `ubuntu-24.04-arm` or `ubuntu-24.04`, matching the server (§4b) |
+| Environment variables (`production`) | See the table below |
+| Repository variables (image build) | `IMAGE_PLATFORM` = `linux/arm64`, `IMAGE_RUNNER` = `ubuntu-24.04-arm` (the server is `aarch64`, §4b) |
 | Dependabot | `github-actions`, `gradle` (`/backend`), `npm` (`/frontend`), weekly |
+
+**`production` environment variables**
+
+| Variable | Value |
+|---|---|
+| `DOKPLOY_URL` | `http://127.0.0.1:3000`, the Dokploy API as the deploy runner sees it on the server's loopback (§4a). Not the public panel domain. |
+| `DOKPLOY_APP_ID_IDP` | Id of the `seatwise-idp` application, from its Dokploy URL (§5.1) |
+| `DOKPLOY_APP_ID_API` | Id of `seatwise-api` |
+| `DOKPLOY_APP_ID_DESK` | Id of `seatwise-desk` |
+| `PUBLIC_DESK_URL` | `https://desk.waahanasale.lk` |
+| `PUBLIC_IDP_URL` | `https://auth.waahanasale.lk` |
 
 Application secrets (DB passwords, Keycloak admin, provisioner secret,
 bootstrap admin) are **not** stored in GitHub. They live only in Dokploy's
@@ -256,10 +273,21 @@ jobs:
           echo "IMAGE_PREFIX=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/seatwise" >> "$GITHUB_ENV"
           if [ -n "${{ inputs.image_tag }}" ]; then echo "tag=${{ inputs.image_tag }}" >> "$GITHUB_OUTPUT"
           else echo "tag=sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"; fi
-      - name: Check Dokploy is reachable on loopback
+      - name: Check the Dokploy API answers and the key works
         env:
           DOKPLOY_URL: ${{ vars.DOKPLOY_URL }}
-        run: curl -fsS -o /dev/null --max-time 10 "$DOKPLOY_URL" || { echo "Dokploy not reachable at $DOKPLOY_URL"; exit 1; }
+          DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
+        run: |
+          # An authenticated read that only Dokploy answers with a JSON array.
+          # A bare "does the port answer" check would pass against any app on
+          # that port and then send the deploy calls to the wrong place.
+          body=$(mktemp)
+          code=$(curl -sS -o "$body" -w '%{http_code}' --max-time 10 \
+            -H "x-api-key: $DOKPLOY_API_KEY" "$DOKPLOY_URL/api/project.all") || code=000
+          if [ "$code" != 200 ] || ! jq -e 'type == "array"' "$body" > /dev/null; then
+            echo "No Dokploy API at $DOKPLOY_URL (HTTP $code): wrong port or app, Dokploy down, or a bad API key."
+            exit 1
+          fi
       - name: Deploy idp → api → desk
         env:
           DOKPLOY_URL: ${{ vars.DOKPLOY_URL }}
@@ -351,9 +379,11 @@ deployment platform, which is how automatic updates worked before.
 On the server, as a sudo-capable user:
 
 ```bash
-# 0. Facts this plan depends on
+# 0. Facts this plan depends on (results for this server: see "Port discovery" below)
 uname -m                                         # aarch64 → arm64 images (§4b); x86_64 → amd64
-curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000   # Dokploy answers on loopback (2xx/3xx)
+# Dokploy API answers on loopback with the API key: expect HTTP 200 and a JSON array
+curl -sS -w '\nHTTP %{http_code}\n' -H "x-api-key: <DOKPLOY_API_KEY>" http://127.0.0.1:3000/api/project.all | tail -c 300
+history -d $(history 1)                          # keep the key out of shell history
 
 # 1. Dedicated, unprivileged user. Not in the docker group: it never needs Docker.
 sudo useradd --create-home --shell /bin/bash gh-runner
@@ -366,7 +396,7 @@ mkdir actions-runner && cd actions-runner
 curl -fsSLO https://github.com/actions/runner/releases/download/v<version>/actions-runner-linux-<arm64|x64>-<version>.tar.gz
 echo "<sha256>  actions-runner-linux-<arm64|x64>-<version>.tar.gz" | sha256sum -c
 tar xzf actions-runner-linux-*.tar.gz
-./config.sh --url https://github.com/<owner>/<repo> --token <registration-token> \
+./config.sh --url https://github.com/ayeshdev/seatwise --token <registration-token> \
   --name seatwise-prod --labels seatwise-deploy --work _work --unattended
 exit
 
@@ -380,16 +410,40 @@ sudo ./svc.sh status
 The runner shows as **Idle** under Settings → Actions → Runners with labels
 `self-hosted`, `Linux`, `ARM64`/`X64` and `seatwise-deploy`.
 
-### If `127.0.0.1:3000` doesn't answer
+### Port discovery (done 2026-10-09)
 
-Dokploy publishes its UI and API on port 3000 of the host by default. If the
-loopback check fails:
+Other applications on this server also listen on port 3000 *inside their own
+containers* (for example the existing `waahanasale.lk` app). That doesn't
+occupy the host's port 3000; only a published port does. Which process owns
+the host port was checked directly:
 
-- `sudo docker ps --format '{{.Names}} {{.Ports}}' | grep -i dokploy` shows
-  which host port is published. Set `DOKPLOY_URL` to that port.
-- If the port isn't published to the host at all, use the Dokploy domain you
-  already open in the browser (for example `https://dokploy.example.com`) with
-  the same `--resolve …:443:127.0.0.1` approach as the verify job.
+```bash
+sudo ss -ltnp | grep -E ':3000\b'
+#   LISTEN 0.0.0.0:3000  users:(("docker-proxy",...))     ← a published container port
+sudo docker ps --format '{{.Names}}\t{{.Ports}}' | grep -i dokploy
+#   dokploy.1.…      0.0.0.0:3000->3000/tcp               ← it is Dokploy's
+#   dokploy-traefik  0.0.0.0:80->80/tcp, 0.0.0.0:443->443/tcp
+sudo docker service inspect dokploy --format '{{json .Endpoint.Ports}}'
+#   [{"Protocol":"tcp","TargetPort":3000,"PublishedPort":3000,"PublishMode":"host"}]
+```
+
+Result: host port 3000 is Dokploy, published in `host` mode, so
+`DOKPLOY_URL=http://127.0.0.1:3000`. Closing port 3000 in the cloud firewall
+(Hardening, below) doesn't affect this, because loopback traffic never passes
+through the cloud firewall.
+
+If a reinstall ever changes this:
+
+- **Dokploy published on another host port N:** set `DOKPLOY_URL` to
+  `http://127.0.0.1:N`.
+- **Dokploy not published on the host at all:** use the panel domain
+  (`https://dok.dev.waahanasale.lk`) and add
+  `--resolve dok.dev.waahanasale.lk:443:127.0.0.1` to the deploy `curl` calls,
+  the same approach as the verify job. That reaches the local Traefik with the
+  right hostname and certificate instead of hair-pinning through the public IP.
+
+Either way, the authenticated check in the deploy job (§4) fails loudly if
+`DOKPLOY_URL` points at anything other than a working Dokploy API.
 
 ### Hardening
 
@@ -401,7 +455,7 @@ loopback check fails:
 | `production` environment limited to `main` | `DOKPLOY_API_KEY` is only released to jobs from `main` |
 | Unprivileged `gh-runner` user, not in the `docker` group | A compromised job can call the Dokploy API but can't control Docker or read other containers' volumes |
 | No inbound port for CI | The runner long-polls GitHub over outbound HTTPS |
-| Optional: block port 3000 from the internet (cloud security list or `ufw`) and reach the Dokploy UI through its HTTPS domain | Removes any public exposure of the Dokploy API |
+| Block port 3000 from the internet in the **cloud firewall** (VCN security list / NSG): remove any ingress rule for 3000. Reach the Dokploy UI only through `https://dok.dev.waahanasale.lk`. | Dokploy publishes 3000 on `0.0.0.0`, which exposes its login and API over plain HTTP. **`ufw` can't close it:** Docker writes its own iptables rules for published ports, and they're evaluated before `ufw`'s, so `ufw deny 3000` looks applied and blocks nothing. Check from a machine outside the server: `curl -m 5 http://<server-ip>:3000` must time out, while `curl http://127.0.0.1:3000` on the server still answers. |
 | The runner auto-updates; check `svc.sh status` after OS upgrades | A stopped runner leaves deploys queued (§6) |
 
 Accepted residual risk: anyone with write access to the private repository
@@ -415,7 +469,8 @@ organisation.
 ## 4b. CPU architecture of the images
 
 Dokploy pulls whatever architecture the image offers, so the images must
-match the server. Check `uname -m` once (§4a step 0):
+match the server. `uname -m` on the production server reports **`aarch64`**
+(checked 2026-10-09), so the first row applies:
 
 | Server | `IMAGE_PLATFORM` | `IMAGE_RUNNER` | Notes |
 |---|---|---|---|
@@ -436,9 +491,9 @@ Dokploy project **`seatwise`**, environment **production**:
 | Service | Dokploy type | Source | Domain | Port | Notes |
 |---|---|---|---|---|---|
 | `seatwise-db` | PostgreSQL 17 | Dokploy DB | none (internal) | 5432 | One shared service with two databases: `seatwise` (app) and `keycloak` (IdP, own role). Same layout as local Compose. Scheduled backups to an S3 destination, daily, keep 14 |
-| `seatwise-idp` | Application | Docker image `ghcr.io/<owner>/seatwise-idp:<tag>` | `auth.example.com` (HTTPS, Let's Encrypt) | 8080 | |
-| `seatwise-api` | Application | Docker image `ghcr.io/<owner>/seatwise-api:<tag>` | none (internal) | 8080 | |
-| `seatwise-desk` | Application | Docker image `ghcr.io/<owner>/seatwise-desk:<tag>` | `desk.example.com` (HTTPS, Let's Encrypt) | 80 | |
+| `seatwise-idp` | Application | Docker image `ghcr.io/ayeshdev/seatwise-idp:<tag>` | `auth.waahanasale.lk` (HTTPS, Let's Encrypt) | 8080 | |
+| `seatwise-api` | Application | Docker image `ghcr.io/ayeshdev/seatwise-api:<tag>` | none (internal) | 8080 | |
+| `seatwise-desk` | Application | Docker image `ghcr.io/ayeshdev/seatwise-desk:<tag>` | `desk.waahanasale.lk` (HTTPS, Let's Encrypt) | 80 | |
 | `seatwise-search` | Application | Docker image `getmeili/meilisearch:v1.43.0` (upstream, pinned; **not** built or redeployed by CI) | none (internal) | 7700 | Volume mount `/meili_data`. No backup needed: the index is rebuilt from `seatwise-db` on every API start |
 
 **Total: 5 Dokploy services** = 1 Postgres + 4 applications. CI redeploys 3 of
@@ -463,7 +518,7 @@ variables (§2).
 ### 5.2 Registry access (private packages)
 
 The repository is private, so the three GHCR packages
-(`ghcr.io/<owner>/seatwise-{api,desk,idp}`) are private too. After the first
+(`ghcr.io/ayeshdev/seatwise-{api,desk,idp}`) are private too. After the first
 `deliver` run creates them, check each package's settings: it should be
 linked to the repository, with the repository granted **write** under
 "Manage Actions access" so later runs can push new tags.
@@ -477,7 +532,7 @@ Dokploy pulls with one saved credential:
 - Dokploy → Settings → Registry → Add: registry URL `ghcr.io`, username = the
   token owner's GitHub username, password = the token. Test the login there.
 - Point each application at an image such as
-  `ghcr.io/<owner>/seatwise-api:sha-1a2b3c4`, the same way a registry URL with
+  `ghcr.io/ayeshdev/seatwise-api:sha-1a2b3c4`, the same way a registry URL with
   a tag was set before. CI then only changes the tag.
 - Never use the workflow's `GITHUB_TOKEN` for this. It expires when the job
   ends, before Dokploy pulls.
@@ -490,12 +545,12 @@ Dokploy pulls with one saved credential:
 KC_DB=postgres
 KC_DB_URL=jdbc:postgresql://seatwise-db:5432/keycloak
 KC_DB_USERNAME=…            KC_DB_PASSWORD=…
-KC_HOSTNAME=https://auth.example.com
+KC_HOSTNAME=https://auth.waahanasale.lk
 KC_PROXY_HEADERS=xforwarded
 KC_HTTP_ENABLED=true        # TLS terminates at Traefik
 KC_HEALTH_ENABLED=true
 KC_BOOTSTRAP_ADMIN_USERNAME=…   KC_BOOTSTRAP_ADMIN_PASSWORD=…   # master-realm admin, ops only
-SEATWISE_DESK_URL=https://desk.example.com          # used by realm-file placeholders
+SEATWISE_DESK_URL=https://desk.waahanasale.lk          # used by realm-file placeholders
 SEATWISE_PROVISIONER_SECRET=…                        # same value as in seatwise-api
 ```
 
@@ -511,7 +566,7 @@ local and production.
 SPRING_PROFILES_ACTIVE=prod,demo     # drop "demo" once real data exists
 SPRING_DATASOURCE_URL=jdbc:postgresql://seatwise-db:5432/seatwise
 SPRING_DATASOURCE_USERNAME=…  SPRING_DATASOURCE_PASSWORD=…
-SEATWISE_OIDC_ISSUER=https://auth.example.com/realms/seatwise
+SEATWISE_OIDC_ISSUER=https://auth.waahanasale.lk/realms/seatwise
 SEATWISE_OIDC_JWKS=http://seatwise-idp:8080/realms/seatwise/protocol/openid-connect/certs
 SEATWISE_KEYCLOAK_ADMIN_BASE=http://seatwise-idp:8080
 SEATWISE_PROVISIONER_SECRET=…
@@ -536,7 +591,7 @@ MEILI_DB_PATH=/meili_data/data.ms
 
 ```
 API_UPSTREAM=http://seatwise-api:8080
-SEATWISE_IDP_URL=https://auth.example.com
+SEATWISE_IDP_URL=https://auth.waahanasale.lk
 SEATWISE_REALM=seatwise
 SEATWISE_CLIENT_ID=seatwise-desk
 ```
@@ -594,7 +649,7 @@ Forward-only Flyway: never edit an applied migration. Rollback is a new
   `GIT_SHA` build arg) and build time (`springBoot { buildInfo() }`).
 - A Dokploy notification (email, Slack or Discord) on deploy failure.
 - An optional uptime check (UptimeRobot or similar) on
-  `https://desk.example.com/healthz`.
+  `https://desk.waahanasale.lk/healthz`.
 
 ---
 
@@ -608,7 +663,7 @@ Forward-only Flyway: never edit an applied migration. Rollback is a new
 6. [ ] Registry access (§5.2): a `read:packages` classic token saved in Dokploy → Settings → Registry
 7. [ ] GitHub `production` environment: secret `DOKPLOY_API_KEY`, vars `DOKPLOY_URL` and the app ids (§2)
 8. [ ] Merge to `main` → `deliver.yml`: images build on GitHub-hosted runners, deploy and verify run on `seatwise-deploy` and go green
-9. [ ] Log in at `https://desk.example.com` as the bootstrap Admin, change the password, create Manager/Staff
+9. [ ] Log in at `https://desk.waahanasale.lk` as the bootstrap Admin, change the password, create Manager/Staff
 10. [ ] Run the SRS §8 acceptance script on the live URL
 11. [ ] Test rollback once: run deliver with the previous `sha-` tag, confirm `/actuator/info` changes back, then redeploy latest
 12. [ ] Put the live URL in the README
