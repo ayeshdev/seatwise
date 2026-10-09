@@ -17,6 +17,7 @@ import { SessionStore } from '@core/auth/session.store';
 import { messageFor } from '@core/http/messages';
 import { isProblemError } from '@core/http/problem';
 import { ToastService } from '@core/layout/toast.service';
+import { ActivityTimeline } from '@features/activity/activity-timeline';
 import { RegisterPanel } from '@features/registrations/register-panel';
 import { RegistrationHistory } from '@features/registrations/registration-history';
 import { Button } from '@shared/ui/button';
@@ -36,7 +37,16 @@ type LoadState = 'loading' | 'ready' | 'notFound' | 'error';
 
 @Component({
   selector: 'sw-workshop-detail-page',
-  imports: [RouterLink, Button, EmptyState, SeatMeter, StatusBadge, RegisterPanel, RegistrationHistory],
+  imports: [
+    RouterLink,
+    Button,
+    EmptyState,
+    SeatMeter,
+    StatusBadge,
+    RegisterPanel,
+    RegistrationHistory,
+    ActivityTimeline,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <a routerLink="/workshops" class="mb-4 inline-block text-sm text-ink-muted hover:text-ink">
@@ -135,6 +145,11 @@ type LoadState = 'loading' | 'ready' | 'notFound' | 'error';
               <sw-register-panel [workshop]="w" (changed)="refresh(true)" />
             </div>
           </div>
+
+          <section class="mt-6 rounded-card border border-line bg-surface p-5" aria-labelledby="sw-activity-h">
+            <h2 id="sw-activity-h" class="mb-4 text-xl">Activity</h2>
+            <sw-activity-timeline [workshopId]="w.id" [refreshKey]="w.version + historyBump()" />
+          </section>
         }
       }
     }
