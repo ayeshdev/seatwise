@@ -642,6 +642,23 @@ type CancelRequest = { reason?: string | null };
 type CancelResult = { cancelled: Registration; promoted: Registration | null };
 ```
 
+```ts
+// Audit (bonus) — GET /audit-events?entityType=&entityId=&from=&to=&page=&size=
+type AuditEntityType = 'STAFF_ACCOUNT' | 'WORKSHOP' | 'REGISTRATION';
+type AuditEvent = {
+  id: number; occurredAt: string;
+  actor: StaffRef | null;            // null = the system (bootstrap, seeding)
+  entityType: AuditEntityType; entityId: string;
+  workshopId: string | null;         // set for WORKSHOP and REGISTRATION events, so a workshop's timeline includes its bookings
+  action: 'CREATED' | 'UPDATED' | 'CANCELLED' | 'ROLE_CHANGED' | 'RENAMED' | 'DEACTIVATED' |
+          'REACTIVATED' | 'PASSWORD_RESET' | 'REGISTERED' | 'WAITLISTED' | 'PROMOTED';
+  summary: string;                   // plain-language one-liner, e.g. "Changed capacity from 12 to 16"
+  changes: Record<string, { from: unknown; to: unknown }>;  // empty object when not applicable
+};
+// Response: Page<AuditEvent>, newest first. entityType is required for Admin (STAFF_ACCOUNT only);
+// Manager/Staff may pass WORKSHOP or REGISTRATION, or workshopId=<id> for one workshop's timeline.
+```
+
 `GET /workshops/{id}/registrations` returns `Registration[]` (the full history
 of one workshop, newest first, optional `status` filter). It isn't paged:
 a workshop has at most a few hundred rows.
