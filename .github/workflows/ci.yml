@@ -49,7 +49,8 @@ jobs:
           cache-dependency-path: frontend/pnpm-lock.yaml
       - run: pnpm -C frontend install --frozen-lockfile
       - run: pnpm -C frontend lint
-      - run: pnpm -C frontend test --ci
+      # `run` forwards --ci to Jest; bare `pnpm test` rejects unknown options.
+      - run: pnpm -C frontend run test --ci
       - run: pnpm -C frontend build
 
   compose-smoke:
