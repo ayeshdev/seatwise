@@ -73,6 +73,7 @@ quality gate.
 | Environment secrets (`production`) | `DOKPLOY_API_KEY` (Dokploy → Settings → Profile → API/CLI → generate) |
 | Environment variables (`production`) | See the table below |
 | Repository variables (image build) | `IMAGE_PLATFORM` = `linux/arm64`, `IMAGE_RUNNER` = `ubuntu-24.04-arm` (the server is `aarch64`, §4b) |
+| Repository variable (deploy switch) | `DEPLOY_ENABLED` = `true` once the runner, Dokploy apps and the `production` environment are ready. Until then `deliver` only tests and publishes images. It must be a repository variable, because a job-level `if` can't see environment variables. |
 | Dependabot | `github-actions`, `gradle` (`/backend`), `npm` (`/frontend`), weekly |
 
 **`production` environment variables**
@@ -258,7 +259,7 @@ jobs:
 
   deploy:
     needs: images
-    if: ${{ always() && (needs.images.result == 'success' || inputs.image_tag != '') }}
+    if: ${{ always() && vars.DEPLOY_ENABLED == 'true' && (needs.images.result == 'success' || inputs.image_tag != '') }}
     # The self-hosted runner on the Dokploy server (§4a). No checkout: nothing
     # from the repository is executed on the production box, only this script.
     runs-on: [self-hosted, linux, seatwise-deploy]

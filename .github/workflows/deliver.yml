@@ -64,9 +64,10 @@ jobs:
 
   deploy:
     needs: images
-    # Skipped until the Dokploy server and its runner are set up (DOKPLOY_URL set),
-    # so pushes before then only test and publish images instead of queueing forever.
-    if: ${{ always() && vars.DOKPLOY_URL != '' && (needs.images.result == 'success' || inputs.image_tag != '') }}
+    # Skipped until the Dokploy server and its runner are set up: set the
+    # REPOSITORY variable DEPLOY_ENABLED=true (environment variables aren't
+    # visible to a job-level `if`). Until then pushes only test and publish images.
+    if: ${{ always() && vars.DEPLOY_ENABLED == 'true' && (needs.images.result == 'success' || inputs.image_tag != '') }}
     # The self-hosted runner on the Dokploy server (§4a). No checkout: nothing
     # from the repository is executed on the production box, only this script.
     runs-on: [self-hosted, linux, seatwise-deploy]
