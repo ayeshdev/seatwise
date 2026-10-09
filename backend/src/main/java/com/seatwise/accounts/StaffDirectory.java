@@ -15,4 +15,7 @@ public interface StaffDirectory {
 
     /** Batch lookup for history lists; ids without an account are simply absent from the map. */
     Map<UUID, StaffSummary> findAllById(Collection<UUID> ids);
+
+    /** Case-insensitive; for startup seeding that only knows a login email. */
+    Optional<StaffSummary> findByEmail(String email);
 }

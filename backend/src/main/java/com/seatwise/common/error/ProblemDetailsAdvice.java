@@ -221,8 +221,10 @@ public class ProblemDetailsAdvice extends ResponseEntityExceptionHandler {
      * Walks the cause chain for the PostgreSQL error and returns the violated
      * constraint name. Works for JPA flushes and plain JDBC alike, because the
      * driver exception is always somewhere underneath Spring's translation.
+     * Public so a service can turn a known constraint into a domain error while
+     * it still has the context for a precise message.
      */
-    static Optional<String> violatedConstraint(Throwable ex) {
+    public static Optional<String> violatedConstraint(Throwable ex) {
         Throwable current = ex;
         int depth = 0;
         while (current != null && depth++ < 20) {

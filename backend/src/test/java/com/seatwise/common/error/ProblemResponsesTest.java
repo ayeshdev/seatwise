@@ -19,6 +19,9 @@ import com.seatwise.common.security.SecurityConfig;
 import com.seatwise.common.security.StaffAuthenticationToken;
 import com.seatwise.common.security.StaffPrincipal;
 import com.seatwise.common.security.StaffRole;
+import com.seatwise.registrations.internal.RegistrationService;
+import com.seatwise.search.internal.WorkshopSearch;
+import com.seatwise.workshops.internal.WorkshopService;
 import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -52,6 +55,16 @@ class ProblemResponsesTest {
 
     @MockitoBean
     private StaffAccountService staffAccountService;
+
+    // Every controller is loaded by @WebMvcTest, so each one's service is mocked.
+    @MockitoBean
+    private WorkshopService workshopService;
+
+    @MockitoBean
+    private RegistrationService registrationService;
+
+    @MockitoBean
+    private WorkshopSearch workshopSearch;
 
     @MockitoBean
     private StaffAuthenticationConverter converter;
