@@ -63,6 +63,10 @@ public class SecurityConfig {
                         .hasRole(StaffRole.MANAGER.name())
                         .requestMatchers(HttpMethod.PUT, "/api/v1/workshops/*")
                         .hasRole(StaffRole.MANAGER.name())
+                        // Audit: every role, but which entity types each one sees is
+                        // decided per request by the audit query service (section 8).
+                        .requestMatchers(HttpMethod.GET, "/api/v1/audit-events")
+                        .hasAnyRole(StaffRole.ADMIN.name(), StaffRole.MANAGER.name(), StaffRole.STAFF.name())
                         .anyRequest()
                         .authenticated())
                 .exceptionHandling(e -> e.authenticationEntryPoint(problems).accessDeniedHandler(problems))

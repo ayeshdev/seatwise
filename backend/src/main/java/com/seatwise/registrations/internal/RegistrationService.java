@@ -102,9 +102,10 @@ public class RegistrationService {
     @Transactional
     public CancelResult cancel(UUID registrationId, CancelRegistrationRequest request) {
         UUID actor = actors.currentStaffId();
-        UUID workshopId = repository.findById(registrationId)
-                .map(RegistrationEntity::getWorkshopId)
+        RegistrationEntity target = repository.findById(registrationId)
                 .orElseThrow(RegistrationService::registrationNotFound);
+        UUID workshopId = target.getWorkshopId();
+        String attendeeName = target.getAttendeeName();
 
         // Workshop lock first (see class comment); after it, the status we read
         // can't change under us, so it is the status we are about to cancel.
@@ -118,7 +119,8 @@ public class RegistrationService {
             throw new DomainException(
                     ErrorCode.ALREADY_CANCELLED, "This booking was already cancelled, possibly by a colleague just now.");
         }
-        events.publishEvent(new RegistrationCancelled(registrationId, workshopId, previous, reason, actor, now));
+        events.publishEvent(new RegistrationCancelled(
+                registrationId, workshopId, attendeeName, previous, reason, actor, now));
 
         Optional<UUID> promoted = Optional.empty();
         if (previous == RegistrationStatus.ACTIVE) {
@@ -162,7 +164,8 @@ public class RegistrationService {
         Optional<UUID> next = repository.lockNextWaitlisted(workshopId);
         while (next.isPresent() && seats.tryClaimSeat(workshopId)) {
             repository.promote(next.get(), now);
-            events.publishEvent(new WaitlistPromoted(next.get(), workshopId, null, actor, now));
+            events.publishEvent(new WaitlistPromoted(
+                    next.get(), workshopId, attendeeName(next.get()), null, actor, now));
             next = repository.lockNextWaitlisted(workshopId);
         }
     }
@@ -198,8 +201,13 @@ public class RegistrationService {
     private Optional<UUID> promoteNext(UUID workshopId, UUID freedBy, UUID actor, Instant now) {
         Optional<UUID> next = repository.lockNextWaitlisted(workshopId)
                 .filter(id -> repository.promote(id, now) == 1);
-        next.ifPresent(id -> events.publishEvent(new WaitlistPromoted(id, workshopId, freedBy, actor, now)));
+        next.ifPresent(id -> events.publishEvent(
+                new WaitlistPromoted(id, workshopId, attendeeName(id), freedBy, actor, now)));
         return next;
+    }
+
+    private String attendeeName(UUID registrationId) {
+        return repository.findById(registrationId).orElseThrow().getAttendeeName();
     }
 
     private RegistrationEntity insert(RegistrationEntity registration) {

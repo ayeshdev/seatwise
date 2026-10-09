@@ -155,7 +155,7 @@ public class WorkshopService {
         String reason = request == null ? null : blankToNull(request.reason());
         workshop.cancel(reason, actor, now);
         save(workshop);
-        events.publishEvent(new WorkshopCancelled(id, reason, actor, now));
+        events.publishEvent(new WorkshopCancelled(id, workshop.getCode(), workshop.getTitle(), reason, actor, now));
         return respond(workshop);
     }
 
