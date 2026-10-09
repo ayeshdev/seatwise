@@ -67,7 +67,7 @@ class KeycloakIdentityProvisioner implements IdentityProvisioner {
                 .followRedirects(HttpClient.Redirect.NEVER)
                 .build();
         JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(client);
-        requestFactory.setReadTimeout(Duration.ofSeconds(10));
+        requestFactory.setReadTimeout(Duration.ofSeconds(5));
         // Strictly encode URI variables: the default leaves '+' in a query value
         // as-is, which Keycloak decodes as a space and then misses the user.
         DefaultUriBuilderFactory uriFactory = new DefaultUriBuilderFactory(stripTrailingSlash(config.adminBaseUrl()));
@@ -105,7 +105,12 @@ class KeycloakIdentityProvisioner implements IdentityProvisioner {
             throw unavailable();
         }
         String path = location.getPath();
-        return UUID.fromString(path.substring(path.lastIndexOf('/') + 1));
+        try {
+            return UUID.fromString(path.substring(path.lastIndexOf('/') + 1));
+        } catch (IllegalArgumentException notAUuid) {
+            log.error("Keycloak created a user but its Location header has no user id: {}", location);
+            throw unavailable();
+        }
     }
 
     @Override
@@ -118,10 +123,15 @@ class KeycloakIdentityProvisioner implements IdentityProvisioner {
         if (users == null) {
             return Optional.empty();
         }
-        return users.stream()
-                .filter(u -> email.equalsIgnoreCase(String.valueOf(u.get("email"))))
-                .map(u -> UUID.fromString(String.valueOf(u.get("id"))))
-                .findFirst();
+        try {
+            return users.stream()
+                    .filter(u -> email.equalsIgnoreCase(String.valueOf(u.get("email"))))
+                    .map(u -> UUID.fromString(String.valueOf(u.get("id"))))
+                    .findFirst();
+        } catch (IllegalArgumentException notAUuid) {
+            log.error("Keycloak returned a user whose id is not a UUID");
+            throw unavailable();
+        }
     }
 
     @Override

@@ -6,12 +6,14 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.seatwise.common.security.AccountInactiveException;
+import com.seatwise.common.security.AuthenticationUnavailableException;
 import com.seatwise.common.security.StaffPrincipal;
 import com.seatwise.common.security.StaffRole;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.security.authentication.AbstractAuthenticationToken;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -90,6 +92,18 @@ class StaffAuthenticationConverterTest {
         // Act / Assert
         assertThatThrownBy(() -> converter.convert(jwtFor("service-account-something")))
                 .isInstanceOf(AccountInactiveException.class);
+    }
+
+    @Test
+    void databaseOutageIsAnAuthenticationUnavailableFailureNotAnInactiveAccount() {
+        // Arrange
+        UUID id = UUID.randomUUID();
+        when(repository.findById(id)).thenThrow(new DataAccessResourceFailureException("connection refused"));
+
+        // Act / Assert
+        assertThatThrownBy(() -> converter.convert(jwtFor(id.toString())))
+                .isInstanceOf(AuthenticationUnavailableException.class)
+                .hasCauseInstanceOf(DataAccessResourceFailureException.class);
     }
 
     private static Jwt jwtFor(String subject) {

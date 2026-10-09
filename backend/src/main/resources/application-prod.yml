@@ -3,3 +3,18 @@ logging:
   structured:
     format:
       console: ecs
+
+# Secrets have no defaults here on purpose: an unset variable fails the
+# startup (unresolvable placeholder) instead of silently running with the
+# well-known dev value. ProductionSecretsGuard additionally refuses the dev
+# values if someone sets them explicitly.
+seatwise:
+  keycloak:
+    provisioner-secret: ${SEATWISE_PROVISIONER_SECRET}
+  bootstrap:
+    admin-email: ${SEATWISE_BOOTSTRAP_ADMIN_EMAIL}
+    admin-password: ${SEATWISE_BOOTSTRAP_ADMIN_PASSWORD}
+    # FR-AUTH-04: the first Admin must choose their own password at first sign-in.
+    password-temporary: true
+  search:
+    master-key: ${SEATWISE_SEARCH_MASTER_KEY}

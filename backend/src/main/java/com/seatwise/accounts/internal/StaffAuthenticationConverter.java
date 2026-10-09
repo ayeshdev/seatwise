@@ -1,11 +1,13 @@
 package com.seatwise.accounts.internal;
 
 import com.seatwise.common.security.AccountInactiveException;
+import com.seatwise.common.security.AuthenticationUnavailableException;
 import com.seatwise.common.security.StaffAuthenticationToken;
 import com.seatwise.common.security.StaffPrincipal;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.core.convert.converter.Converter;
+import org.springframework.dao.DataAccessException;
 import org.springframework.security.authentication.AbstractAuthenticationToken;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Component;
@@ -32,7 +34,7 @@ public class StaffAuthenticationConverter implements Converter<Jwt, AbstractAuth
     @Override
     public AbstractAuthenticationToken convert(Jwt jwt) {
         StaffAccountEntity account = parseId(jwt.getSubject())
-                .flatMap(repository::findById)
+                .flatMap(this::load)
                 .filter(StaffAccountEntity::isActive)
                 // Same answer for "no row" and "deactivated": either way there is
                 // no active account, and we don't reveal which.
@@ -40,6 +42,17 @@ public class StaffAuthenticationConverter implements Converter<Jwt, AbstractAuth
         StaffPrincipal principal = new StaffPrincipal(
                 account.getId(), account.getEmail(), account.getFullName(), account.getRole());
         return new StaffAuthenticationToken(jwt, principal);
+    }
+
+    // A database outage is not the caller's fault: surface it as a 503 from the
+    // entry point, not as "your account is inactive" (403) or an unhandled 500
+    // from inside the filter chain.
+    private Optional<StaffAccountEntity> load(UUID id) {
+        try {
+            return repository.findById(id);
+        } catch (DataAccessException e) {
+            throw new AuthenticationUnavailableException("Could not load the staff account", e);
+        }
     }
 
     private static Optional<UUID> parseId(String subject) {

@@ -24,6 +24,7 @@ import com.seatwise.common.security.StaffRole;
 import com.seatwise.support.TestcontainersConfiguration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
@@ -46,6 +47,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /** Account rules against a real PostgreSQL (constraints, locks, versions); Keycloak is mocked. */
 @SpringBootTest
@@ -70,6 +72,9 @@ class StaffAccountServiceIT {
 
     @Autowired
     private ApplicationEvents events;
+
+    @Autowired
+    private TransactionTemplate transactions;
 
     @MockitoBean
     private IdentityProvisioner identity;
@@ -146,6 +151,103 @@ class StaffAccountServiceIT {
                 .isInstanceOf(DataIntegrityViolationException.class);
         verify(identity).deleteUser(adminId);
         assertThat(repository.findByEmailIgnoreCase("new@example.com")).isEmpty();
+    }
+
+    @Test
+    void compensatingDeleteIsRetriedWhenKeycloakIsBrieflyUnavailable() {
+        // Arrange: the insert fails (id already has a row); Keycloak refuses the first two deletes.
+        when(identity.createUser(anyString(), anyString(), anyString(), anyBoolean())).thenReturn(adminId);
+        doThrow(new DomainException(ErrorCode.IDENTITY_UNAVAILABLE, "down"))
+                .doThrow(new DomainException(ErrorCode.IDENTITY_UNAVAILABLE, "down"))
+                .doNothing()
+                .when(identity).deleteUser(adminId);
+
+        // Act / Assert
+        assertThatThrownBy(() -> service.create(
+                        new CreateStaffAccountRequest("new@example.com", "New Person", StaffRole.STAFF, PASSWORD)))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .satisfies(e -> assertThat(e.getSuppressed()).isEmpty());
+        verify(identity, times(3)).deleteUser(adminId);
+    }
+
+    @Test
+    void compensatingDeleteGivesUpAfterThreeAttemptsAndKeepsTheOriginalError() {
+        // Arrange
+        when(identity.createUser(anyString(), anyString(), anyString(), anyBoolean())).thenReturn(adminId);
+        doThrow(new DomainException(ErrorCode.IDENTITY_UNAVAILABLE, "down")).when(identity).deleteUser(adminId);
+
+        // Act / Assert
+        assertThatThrownBy(() -> service.create(
+                        new CreateStaffAccountRequest("new@example.com", "New Person", StaffRole.STAFF, PASSWORD)))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .satisfies(e -> assertThat(e.getSuppressed())
+                        .singleElement()
+                        .isInstanceOfSatisfying(DomainException.class,
+                                suppressed -> assertThat(suppressed.code()).isEqualTo(ErrorCode.IDENTITY_UNAVAILABLE)));
+        verify(identity, times(3)).deleteUser(adminId);
+    }
+
+    @Test
+    void createTimeoutLooksTheUserUpDeletesItAndReportsIdentityUnavailable() {
+        // Arrange: Keycloak committed the user but the response never arrived.
+        UUID orphanId = UUID.randomUUID();
+        when(identity.createUser(anyString(), anyString(), anyString(), anyBoolean()))
+                .thenThrow(new DomainException(ErrorCode.IDENTITY_UNAVAILABLE, "timed out"));
+        when(identity.findUserIdByEmail("new@example.com")).thenReturn(Optional.of(orphanId));
+
+        // Act / Assert
+        assertThatThrownBy(() -> service.create(
+                        new CreateStaffAccountRequest("new@example.com", "New Person", StaffRole.STAFF, PASSWORD)))
+                .isInstanceOfSatisfying(DomainException.class,
+                        e -> assertThat(e.code()).isEqualTo(ErrorCode.IDENTITY_UNAVAILABLE));
+        verify(identity).findUserIdByEmail("new@example.com");
+        verify(identity).deleteUser(orphanId);
+        assertThat(repository.findByEmailIgnoreCase("new@example.com")).isEmpty();
+    }
+
+    @Test
+    void createTimeoutWithNoUserInKeycloakDeletesNothing() {
+        // Arrange: the request never reached Keycloak.
+        when(identity.createUser(anyString(), anyString(), anyString(), anyBoolean()))
+                .thenThrow(new DomainException(ErrorCode.IDENTITY_UNAVAILABLE, "unreachable"));
+        when(identity.findUserIdByEmail("new@example.com")).thenReturn(Optional.empty());
+
+        // Act / Assert
+        assertThatThrownBy(() -> service.create(
+                        new CreateStaffAccountRequest("new@example.com", "New Person", StaffRole.STAFF, PASSWORD)))
+                .isInstanceOfSatisfying(DomainException.class,
+                        e -> assertThat(e.code()).isEqualTo(ErrorCode.IDENTITY_UNAVAILABLE));
+        verify(identity, never()).deleteUser(any());
+    }
+
+    @Test
+    void keycloakUserIsDeletedWhenTheSurroundingTransactionRollsBackAfterTheInsert() {
+        // Arrange: the insert succeeds, then the outer transaction fails at commit time.
+        UUID keycloakId = UUID.randomUUID();
+        when(identity.createUser(anyString(), anyString(), anyString(), anyBoolean())).thenReturn(keycloakId);
+
+        // Act
+        transactions.executeWithoutResult(status -> {
+            service.create(new CreateStaffAccountRequest("late@example.com", "Late Failure", StaffRole.STAFF, PASSWORD));
+            status.setRollbackOnly();
+        });
+
+        // Assert
+        verify(identity).deleteUser(keycloakId);
+        assertThat(repository.findById(keycloakId)).isEmpty();
+    }
+
+    @Test
+    void keycloakUserIsKeptWhenTheTransactionCommits() {
+        // Arrange
+        UUID keycloakId = UUID.randomUUID();
+        when(identity.createUser(anyString(), anyString(), anyString(), anyBoolean())).thenReturn(keycloakId);
+
+        // Act
+        service.create(new CreateStaffAccountRequest("kept@example.com", "Kept Person", StaffRole.STAFF, PASSWORD));
+
+        // Assert
+        verify(identity, never()).deleteUser(any());
     }
 
     @Test
