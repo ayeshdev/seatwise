@@ -538,7 +538,7 @@ change in the policy class plus its matrix test.
   silently through keycloak-angular.
 - Realm: `registrationAllowed = false`, brute-force detection on, a password
   policy (length ≥ 10).
-- Request size limits, Bean Validation on every DTO, and output is JSON only.
+- Request bodies are capped at 1 MB by the desk's nginx (`client_max_body_size`), every DTO has Bean Validation with `@Size` limits, and output is JSON only.
   Angular escapes by default, so no HTML is ever accepted from users.
 - Secrets come only from env vars (Dokploy env or a local `.env`). Nothing
   secret is baked into images.

@@ -64,3 +64,14 @@ whitespace, and light and dark modes (`docs/architecture.md` §10).
 This was the user's choice.
 **Constraint:** no third-party logos, names or brand assets. Fonts are
 open-licence (`Source Serif 4`, `Inter`) and self-hosted.
+
+## 2026-10-09 — Demo accounts on the live demo deployment
+
+**Decision:** the live deployment runs with the `demo` profile, so reviewers can
+sign in as the demo Manager and Staff straight away. It uses the same dev-only
+passwords that are published in the README.
+**Why:** the brief asks for a seeded login and sample workshops so the reviewers
+"can try it straight away". There is no real data on that instance.
+**Constraint:** a real production deployment drops `demo` from
+`SPRING_PROFILES_ACTIVE`. The `prod` profile refuses to start with any known dev
+default for the provisioner secret, the bootstrap Admin password or the search key.
