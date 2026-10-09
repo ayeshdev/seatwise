@@ -4,6 +4,7 @@ Rolling execution window. Pick from the top and delete lines when shipped.
 Full detail: `plans/implementation-plan.md`.
 
 ## Now
+- [ ] Capacity hardening (after B1 merges; migration V5): BEFORE TRUNCATE triggers on registration, workshop, audit_event; fillFromWaitlist checks promote()==1 and locks the workshop first; promote on startsAt change too; cancel returns old status atomically; seeder ON CONFLICT (id); new races in CapacityConcurrencyIT (waitlist-vs-cancel re-claim, capacity increase vs registrations, cancel vs waitlist-head cancel, workshop cancel vs bookings, same-email double click); non-updatable seats_taken asserted via metamodel; repeat key races
 - [ ] Access matrix: assert each handler's exact `Policies` constant per row; invalid-body variants for denied roles on POST/PUT/PATCH (expect 403)
 - [ ] P1 Access control: `staff_account`, `/me`, `Policies`, `StaffAuthenticationConverter`, Keycloak provisioner, admin bootstrap, `AccessMatrixTest`
 - [ ] P2 Workshops + capacity rule + registrations + history + `CapacityConcurrencyIT` + demo seed
