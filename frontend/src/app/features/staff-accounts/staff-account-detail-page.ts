@@ -16,6 +16,7 @@ import { Role } from '@core/auth/role';
 import { SessionStore } from '@core/auth/session.store';
 import { messageFor } from '@core/http/messages';
 import { ToastService } from '@core/layout/toast.service';
+import { ActivityTimeline } from '@features/activity/activity-timeline';
 import { Button } from '@shared/ui/button';
 import { ConfirmDialogService } from '@shared/ui/confirm-dialog.service';
 import { FieldControl, FormField } from '@shared/ui/form-field';
@@ -50,6 +51,7 @@ export const SELF_NOTE = "You can't change your own role or deactivate yourself.
     RoleChip,
     AccountStatus,
     ResetPasswordDialog,
+    ActivityTimeline,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -156,6 +158,17 @@ export const SELF_NOTE = "You can't change your own role or deactivate yourself.
           @if (isSelf()) {
             <p class="text-sm text-ink-muted">{{ selfNote }}</p>
           }
+        </section>
+
+        <section class="rounded-card border border-line bg-surface p-6">
+          <h2 class="mb-4 text-xl">Recent activity</h2>
+          <sw-activity-timeline
+            [entityType]="'STAFF_ACCOUNT'"
+            [entityId]="acc.id"
+            [paged]="false"
+            [pageSize]="10"
+            [refreshKey]="acc.version"
+          />
         </section>
       </div>
 

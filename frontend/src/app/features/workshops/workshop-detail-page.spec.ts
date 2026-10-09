@@ -4,9 +4,11 @@ import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
+import { EMPTY } from 'rxjs';
 
 import { Role } from '@core/auth/role';
 import { ToastService } from '@core/layout/toast.service';
+import { AuditService } from '@features/activity/audit.service';
 import { ConfirmDialogService } from '@shared/ui/confirm-dialog.service';
 
 import { POLL_INTERVAL_MS, WorkshopDetailPage } from './workshop-detail-page';
@@ -55,6 +57,8 @@ describe('WorkshopDetailPage', () => {
     TestBed.configureTestingModule({
       providers: [
         ...provideApiTesting(role).providers,
+        // The activity timeline has its own specs; here it just stays quiet.
+        { provide: AuditService, useValue: { list: () => EMPTY } },
         provideRouter([
           { path: 'workshops/:id/edit', component: Stub },
           { path: 'workshops/:id', component: WorkshopDetailPage },

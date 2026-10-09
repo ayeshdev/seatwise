@@ -4,10 +4,12 @@ import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
+import { EMPTY } from 'rxjs';
 
 import { Me, SessionStore } from '@core/auth/session.store';
 import { provideRuntimeConfig } from '@core/config/runtime-config';
 import { ToastService } from '@core/layout/toast.service';
+import { AuditService } from '@features/activity/audit.service';
 import { ConfirmDialogService } from '@shared/ui/confirm-dialog.service';
 
 import { StaffAccountDetailPage } from './staff-account-detail-page';
@@ -51,6 +53,8 @@ describe('StaffAccountDetailPage', () => {
         }),
         provideRouter([{ path: 'staff-accounts/:id', component: StaffAccountDetailPage }]),
         { provide: SessionStore, useValue: { me: signal<Me>(ME) } },
+        // The activity timeline has its own specs; here it just stays quiet.
+        { provide: AuditService, useValue: { list: () => EMPTY } },
       ],
     });
     http = TestBed.inject(HttpTestingController);
