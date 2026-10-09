@@ -25,6 +25,7 @@ export const PROBLEM_MESSAGES: Record<KnownProblemCode, string> = {
   SELF_MODIFICATION:
     "You can't change your own role or deactivate your own account. Ask another administrator.",
   IDENTITY_UNAVAILABLE: 'Sign-in service is busy. Please try again in a moment.',
+  SERVICE_UNAVAILABLE: 'Seatwise is having trouble right now. Please try again in a moment.',
 };
 
 export const NETWORK_MESSAGE =

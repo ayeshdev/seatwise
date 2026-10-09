@@ -17,6 +17,7 @@ export const PROBLEM_CODES = [
   'LAST_ADMIN',
   'SELF_MODIFICATION',
   'IDENTITY_UNAVAILABLE',
+  'SERVICE_UNAVAILABLE',
 ] as const;
 
 export type KnownProblemCode = (typeof PROBLEM_CODES)[number];
