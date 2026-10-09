@@ -19,10 +19,9 @@ export const routes: Routes = [
   },
   {
     path: 'staff-accounts',
-    title: 'Staff accounts',
     canMatch: [roleGuard('ADMIN')],
-    loadComponent: () =>
-      import('@features/staff-accounts/staff-accounts-page').then((m) => m.StaffAccountsPage),
+    loadChildren: () =>
+      import('@features/staff-accounts/staff-accounts.routes').then((m) => m.STAFF_ACCOUNT_ROUTES),
   },
   {
     path: 'account-activity',
