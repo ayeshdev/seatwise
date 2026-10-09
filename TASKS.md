@@ -15,3 +15,4 @@ Full detail: `plans/implementation-plan.md`.
 - [ ] B1 Audit trail
 - [ ] B2 Waitlist
 - [ ] D Delivery: `deliver.yml`, Dokploy setup, live smoke
+- [ ] B1 backend contract notes: Manager/Staff `GET /audit-events` with no entityType returns WORKSHOP + REGISTRATION events; `from`/`to` are inclusive `YYYY-MM-DD` in the centre timezone
