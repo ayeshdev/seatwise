@@ -159,7 +159,7 @@ flowchart TB
 | `accounts` | `staff_account` | `StaffDirectory` (look up active staff by id, `StaffSummary` record) | `StaffAccountCreated`, `StaffRoleChanged`, `StaffAccountDeactivated`, `StaffAccountReactivated`, `StaffPasswordReset` |
 | `workshops` | `workshop`, `location` | `WorkshopCatalogue` (read views and the search port), `SeatInventory` (`tryClaimSeat`, `releaseSeat`, `availabilityOf`), `WaitlistCounter` (port implemented by `registrations`, so the workshop view can show the waitlist size without reading another module's table) | `WorkshopScheduled`, `WorkshopUpdated`, `WorkshopCancelled` |
 | `registrations` | `registration` | none (leaf module) | `AttendeeRegistered`, `AttendeeWaitlisted`, `RegistrationCancelled`, `WaitlistPromoted` |
-| `audit` | `audit_event` | `AuditTrail` (query) | none |
+| `audit` | `audit_event` | none (leaf module; owns `GET /api/v1/audit-events`) | none |
 | `search` | Meilisearch index `workshops` (no tables) | none (leaf module; owns the `GET /api/v1/workshops` list/search endpoint) | none |
 | `common` | none | security, error model, `ActorProvider`, `Clock` bean | none |
 
@@ -273,8 +273,9 @@ or the clock passes. Deriving the status means it can never be wrong. The
 `status` filter translates directly into SQL predicates on the same columns.
 
 **Indexes:** `workshop(starts_at)`, `workshop(lifecycle, starts_at)`,
-`registration(workshop_id, status)`, `audit_event(entity_type, entity_id,
-occurred_at desc)`.
+`registration(workshop_id, status)`, `registration(workshop_id, registered_at)`,
+and on `audit_event` one index each for `(entity_type, occurred_at desc)`,
+`(entity_id, occurred_at desc)` and `(workshop_id, occurred_at desc)`.
 
 **Times** are stored as `timestamptz` (UTC). The centre's timezone is one
 setting, `seatwise.centre-timezone`, used for "today / this week" filters and
