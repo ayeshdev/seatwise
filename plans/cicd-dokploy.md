@@ -262,7 +262,7 @@ jobs:
           curl -fsS "$DESK/" | grep -qi '<app-root'
           curl -fsS "${{ vars.PUBLIC_IDP_URL }}/realms/seatwise/.well-known/openid-configuration" > /dev/null
           if [ -n "$EXPECTED" ]; then
-            RUNNING=$(curl -fsS "$DESK/api/actuator/info" | jq -r '.git.commit.id.full // .build.revision')
+            RUNNING=$(curl -fsS "$DESK/api/actuator/info" | jq -r '."git-sha"')
             echo "running=$RUNNING expected=$EXPECTED"
             [ "$RUNNING" = "$EXPECTED" ]
           fi
@@ -295,13 +295,29 @@ Dokploy project **`seatwise`**, environment **production**:
 
 | Service | Dokploy type | Source | Domain | Port | Notes |
 |---|---|---|---|---|---|
-| `seatwise-db` | PostgreSQL 17 | Dokploy DB | none (internal) | 5432 | DB `seatwise`. Scheduled backups to S3 destination, daily, keep 14 |
-| `seatwise-idp-db` | PostgreSQL 17 | Dokploy DB | none (internal) | 5432 | DB `keycloak`. Separate so IdP and app data are backed up and restored independently |
+| `seatwise-db` | PostgreSQL 17 | Dokploy DB | none (internal) | 5432 | One shared service with two databases: `seatwise` (app) and `keycloak` (IdP, own role). Same layout as local Compose. Scheduled backups to an S3 destination, daily, keep 14 |
 | `seatwise-idp` | Application | Docker image `ghcr.io/<owner>/seatwise-idp:<tag>` | `auth.example.com` (HTTPS, Let's Encrypt) | 8080 | |
 | `seatwise-api` | Application | Docker image `ghcr.io/<owner>/seatwise-api:<tag>` | none (internal) | 8080 | |
 | `seatwise-desk` | Application | Docker image `ghcr.io/<owner>/seatwise-desk:<tag>` | `desk.example.com` (HTTPS, Let's Encrypt) | 80 | |
+| `seatwise-search` | Application | Docker image `getmeili/meilisearch:v1.43.0` (upstream, pinned; **not** built or redeployed by CI) | none (internal) | 7700 | Volume mount `/meili_data`. No backup needed: the index is rebuilt from `seatwise-db` on every API start |
 
-Copy each application's id from its Dokploy URL into the GitHub environment
+**Total: 5 Dokploy services** = 1 Postgres + 4 applications. CI redeploys 3 of
+them (`idp`, `api`, `desk`). `seatwise-db` and `seatwise-search` change only
+when someone bumps a version in Dokploy. App and Keycloak data share the one
+Postgres service, as they do locally, so a single backup covers both.
+
+**One-time Keycloak database.** Dokploy's managed Postgres creates a single
+database (`seatwise`), and the Compose init script doesn't run there. After
+creating the service, open its terminal (or connect with psql) and run once:
+
+```sql
+CREATE ROLE keycloak LOGIN PASSWORD '<keycloak-db-password>';
+CREATE DATABASE keycloak OWNER keycloak;
+```
+
+This mirrors `infra/postgres/init/01-databases.sh`.
+
+Copy each CI-deployed application's id from its Dokploy URL into the GitHub environment
 variables (§2).
 
 ### 5.2 Registry access
@@ -322,7 +338,7 @@ variables (§2).
 
 ```
 KC_DB=postgres
-KC_DB_URL=jdbc:postgresql://seatwise-idp-db:5432/keycloak
+KC_DB_URL=jdbc:postgresql://seatwise-db:5432/keycloak
 KC_DB_USERNAME=…            KC_DB_PASSWORD=…
 KC_HOSTNAME=https://auth.example.com
 KC_PROXY_HEADERS=xforwarded
@@ -352,7 +368,18 @@ SEATWISE_PROVISIONER_SECRET=…
 SEATWISE_BOOTSTRAP_ADMIN_EMAIL=…  SEATWISE_BOOTSTRAP_ADMIN_PASSWORD=…
 SEATWISE_BOOTSTRAP_PASSWORD_TEMPORARY=true
 SEATWISE_CENTRE_TIMEZONE=…            # e.g. Europe/London; confirm with the client
+SEATWISE_SEARCH_URL=http://seatwise-search:7700
+SEATWISE_SEARCH_MASTER_KEY=…          # same value as MEILI_MASTER_KEY; API derives a scoped key at startup
 JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=75
+```
+
+**seatwise-search**
+
+```
+MEILI_MASTER_KEY=…            # ≥ 16 bytes, random
+MEILI_ENV=production          # disables the dashboard, enforces the key
+MEILI_NO_ANALYTICS=true
+MEILI_DB_PATH=/meili_data/data.ms
 ```
 
 **seatwise-desk**
@@ -381,6 +408,9 @@ application names. Use the service names Dokploy shows under each app's
 - **idp:** `http://localhost:9000/health/ready` (Keycloak management port).
   Use `stop-first`, because Keycloak cluster caches don't need two instances
   side by side here.
+- **search:** `CMD curl -fsS http://localhost:7700/health`, `stop-first`
+  (a single writer on its volume). While it restarts the API serves search
+  in fallback mode (architecture §7a), so there's no outage.
 - Flyway runs on API startup. With `start-first`, migrations must be
   **backward compatible** with the previous release for the overlap window.
   Follow expand → migrate → contract.
@@ -393,7 +423,8 @@ application names. Use the service names Dokploy shows under each app's
 |---|---|
 | Verify job fails right after deploy | Swarm `failure_action: rollback` usually already reverted. Otherwise run **deliver → Run workflow** with `image_tag` = the last good `sha-…` (from the previous run summary). |
 | Bad release discovered later | Same: redeploy the previous tag. Only safe if the release added no contract-phase migration. Otherwise ship a forward fix. |
-| Data loss / corruption | Restore `seatwise-db` from the Dokploy S3 backup. Keycloak data (`seatwise-idp-db`) is restored separately. |
+| Data loss / corruption | Restore `seatwise-db` from the Dokploy S3 backup. This restores app and Keycloak data together, since both databases live in the same service. |
+| Search index corrupt, empty, or Meilisearch upgraded (new dump format) | Wipe the `seatwise-search` volume or bump its image tag in Dokploy, then restart `seatwise-api`. `SearchIndexBootstrap` rebuilds the index from PostgreSQL. Search runs in fallback mode in the meantime. |
 | Dokploy API key leaked | Revoke it in Dokploy, create a new one, update the GitHub environment secret. |
 
 Forward-only Flyway: never edit an applied migration. Rollback is a new
@@ -405,8 +436,8 @@ Forward-only Flyway: never edit an applied migration. Rollback is a new
 
 - Container logs in Dokploy. The API logs JSON in `prod`, with `requestId`
   and `actorId` in MDC.
-- `GET /actuator/info` reports the git SHA and build time (Gradle
-  `gradle-git-properties` + `springBoot { buildInfo() }`).
+- `GET /actuator/info` reports the git SHA (`git-sha`, from the image's
+  `GIT_SHA` build arg) and build time (`springBoot { buildInfo() }`).
 - A Dokploy notification (email, Slack or Discord) on deploy failure.
 - An optional uptime check (UptimeRobot or similar) on
   `https://desk.example.com/healthz`.
@@ -417,7 +448,7 @@ Forward-only Flyway: never edit an applied migration. Rollback is a new
 
 1. [ ] Create the GitHub repo, push `main`, enable branch protection (§2)
 2. [ ] `ci.yml` green on a first PR
-3. [ ] Dokploy: create the project, two Postgres services and three apps (§5.1). Set env (§5.3), domains + HTTPS, and health checks (§5.4)
+3. [ ] Dokploy: create the project, one Postgres service (plus the one-time `keycloak` database) and four apps (`idp`, `api`, `desk`, `search`) (§5.1). Set env (§5.3), domains + HTTPS, and health checks (§5.4)
 4. [ ] Registry access (§5.2): public packages, or a `read:packages` token
 5. [ ] GitHub `production` environment: secrets + vars (§2)
 6. [ ] Merge to `main` → `deliver.yml` → verify job green

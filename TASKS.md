@@ -7,8 +7,8 @@ Full detail: `plans/implementation-plan.md`.
 - [ ] P0 Foundations: repo, backend/frontend skeletons, Compose, Keycloak realm, `ci.yml`
 - [ ] P1 Access control: `staff_account`, `/me`, `Policies`, `StaffAuthenticationConverter`, Keycloak provisioner, admin bootstrap, `AccessMatrixTest`
 - [ ] P2 Workshops + capacity rule + registrations + history + `CapacityConcurrencyIT` + demo seed
-- [ ] P3 Frontend end to end (auth, shell, workshops, registrations, staff accounts)
-- [ ] P4 Finding workshops (filters, presets, URL state)
+- [ ] P3 Frontend end to end on the warm/minimal design tokens (auth, shell, workshops, registrations, staff accounts)
+- [ ] P4 Finding workshops: `search` module, Postgres fallback first, then Meilisearch index + after-commit sync, filters, presets, URL state
 - [ ] P5 README, `docs/design-notes.md`, skipped list
 
 ## Next (bonus, in order)

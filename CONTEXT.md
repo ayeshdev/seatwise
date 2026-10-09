@@ -12,16 +12,18 @@
 **Seatwise** is a workshop registration service for a community training
 centre.
 - **Backend:** Java 25 / Spring Boot 4 / Spring Modulith (`com.seatwise`:
-  `accounts`, `workshops`, `registrations`, `audit`, `common`).
+  `accounts`, `workshops`, `registrations`, `audit`, `search`, `common`).
 - **Frontend:** Angular 20 single app `seatwise-desk` (`frontend/`).
 - **Database:** PostgreSQL 17 (Flyway).
 - **Identity:** Keycloak 26, realm `seatwise`.
+- **Search:** Meilisearch, index `workshops` (derived from Postgres, never authoritative).
+- **UI:** warm, minimal token-based theme (cream / terracotta / serif headings), light + dark.
 - **Delivery:** GitHub Actions → GHCR → Dokploy.
 
 ## Enabled stack layers
 
 ```
-spring, spring-modulith, postgres, flyway, angular, keycloak, docker, github-actions, dokploy
+spring, spring-modulith, postgres, flyway, meilisearch, angular, keycloak, docker, github-actions, dokploy
 ```
 
 ## Hard project-wide invariants

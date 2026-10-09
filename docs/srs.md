@@ -68,7 +68,8 @@ reporting/exports, multi-tenant use, and mobile apps.
 
 Seatwise is a new, self-contained web application that replaces the shared
 spreadsheet. It has a browser front end (Seatwise Desk), a REST API, a
-PostgreSQL database and a Keycloak identity provider. See
+PostgreSQL database, a Meilisearch search index and a Keycloak identity
+provider. See
 `docs/architecture.md` §3–4.
 
 ### 2.2 User classes
@@ -92,7 +93,14 @@ explain itself (NFR-USE).
 ### 2.4 Constraints
 
 - **C-1.** Stack: Java 25 / Spring Boot 4 / Spring Modulith / PostgreSQL 17 /
-  Keycloak 26 / Angular 20 / Docker (the team's existing stack).
+  Keycloak 26 / Meilisearch (search) / Angular 20 / Docker (the team's
+  existing stack).
+- **C-1a.** Workshop search MUST be served by Meilisearch. PostgreSQL
+  remains the system of record.
+- **C-1b.** The UI follows a warm, minimal visual language: cream canvas,
+  terracotta accent, serif headings, defined as design tokens
+  (architecture §10). It is an original theme with no third-party brand
+  assets.
 - **C-2.** Build budget: 3 hours for the core, prioritised in this order:
   access control → capacity rule and history → working frontend → search →
   everything else.
@@ -183,6 +191,11 @@ explain itself (NFR-USE).
 | FR-FIND-05 | Staff SHOULD be able to filter by location and search by code, title or instructor. | SHOULD |
 | FR-FIND-06 | Results MUST be paged and sorted by start time (soonest first) by default. | MUST |
 | FR-FIND-07 | Filters SHOULD be reflected in the URL so a view can be bookmarked or refreshed. | SHOULD |
+| FR-FIND-08 | Text search MUST be typo-tolerant (e.g. "potery" finds "Pottery") and match code, title, instructor, location and description, served by the Meilisearch index. | MUST |
+| FR-FIND-09 | Seat counts and status shown in search results MUST be exact at response time, even if the search index lags. They are re-read from the system of record. | MUST |
+| FR-FIND-10 | If the search index is unavailable, finding workshops MUST keep working (basic, non-fuzzy mode), and the UI SHOULD say so. | MUST |
+| FR-FIND-11 | Workshop changes, bookings and cancellations MUST appear in search results within 2 seconds of being committed. | MUST |
+| FR-FIND-12 | The search index MUST be rebuildable from the database at any time, automatically on start and nightly. | MUST |
 
 ### 3.6 Audit trail (FR-AUD), bonus
 
@@ -246,6 +259,10 @@ explain itself (NFR-USE).
 - **UI-4.** All errors are shown in plain language with a suggested next
   step. No codes or stack traces.
 - **UI-5.** Every destructive action has a confirmation step.
+- **UI-6.** Every screen uses the warm, minimal design tokens (architecture
+  §10): cream or warm-dark canvas, one terracotta primary action per view,
+  serif headings with a sans body, hairline borders, generous whitespace,
+  and light and dark themes.
 
 ### 5.2 API
 
@@ -253,7 +270,13 @@ REST/JSON under `/api/v1`, documented by OpenAPI. Errors use RFC 9457
 problem details with a stable `code`. The endpoint list and error catalogue
 are in `docs/architecture.md` §9.
 
-### 5.3 Identity provider
+### 5.3 Search engine
+
+Meilisearch on the internal network only. The API is its sole client,
+using a scoped key. Index `workshops`; settings and query mapping are in
+`docs/architecture.md` §7a.
+
+### 5.4 Identity provider
 
 OIDC (Authorization Code + PKCE) against Keycloak realm `seatwise`. The API
 manages staff users through Keycloak's Admin REST API, using a
@@ -274,6 +297,8 @@ least-privilege service account.
 | NFR-CON-02 | Concurrency | Registrations for different workshops do not block each other. |
 | NFR-PERF-01 | Performance | p95 API latency < 300 ms for search and registration at 20 concurrent users on a 2 vCPU server. |
 | NFR-PERF-02 | Performance | The workshop list loads in < 2 s on a typical office connection. |
+| NFR-PERF-03 | Performance | Search-as-you-type returns results in < 150 ms p95 (API, index mode) for the demo-scale catalogue. |
+| NFR-SEC-06 | Security | The search engine is not reachable from the internet or the browser. The API uses a key scoped to the `workshops` index. |
 | NFR-USE-01 | Usability | A new staff member can register an attendee unaided on first use (verified by walkthrough). |
 | NFR-USE-02 | Usability | Registering an attendee takes ≤ 3 interactions from the workshop list. |
 | NFR-USE-03 | Accessibility | WCAG 2.1 AA basics: labels, contrast, keyboard operation, focus visibility. |
@@ -316,7 +341,9 @@ data is limited to attendee name and email and staff name and email.
 6. As Manager, try to set capacity below the seats taken. It's refused with
    the count.
 7. On the workshop list, "This week · has seats" shows only matching
-   workshops.
+   workshops. Typing "potery" finds the pottery workshops. Booking the last
+   seat of a listed workshop makes it drop out of "has seats" within 2 s.
+   With the search container stopped, the list still works in basic mode.
 8. CI is green on the pull request. A merge to `main` deploys, and
    `/actuator/info` on the live site shows the merged SHA.
 
@@ -329,7 +356,7 @@ data is limited to attendee name and email and staff name and email.
 | 1. Staff access and permissions | FR-AUTH-01…10, FR-ACL-01…04, BR-6, BR-7 |
 | 2. Workshop catalogue (+ "anything else worth tracking") | FR-WS-01…09 (location, end time, description, audit fields added) |
 | 3. Registrations: capacity rule, history, concurrency | FR-REG-01…10, BR-1…5, NFR-CON-01/02 |
-| 4. Finding workshops | FR-FIND-01…07 |
+| 4. Finding workshops | FR-FIND-01…12 (Meilisearch: C-1a) |
 | Bonus: audit trail | FR-AUD-01…05 |
 | Bonus: waitlist | FR-WL-01…06 |
 | Deliverables: repo, setup, seeded admin, sample workshops, one-page doc, live deploy | FR-OPS-01…05, NFR-DEP-01 |

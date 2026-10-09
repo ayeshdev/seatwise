@@ -41,3 +41,26 @@ endpoints).
 publisher's transaction.
 **Why:** an audit row can never be missing for a committed change, or
 present for a rolled-back one.
+
+## 2026-10-09 — Meilisearch for workshop search
+
+**Decision:** `GET /api/v1/workshops` is served from a Meilisearch index
+`workshops` (new `search` module). PostgreSQL stays the system of record.
+**Why:** instant, typo-tolerant search with filters for a front desk on the
+phone. This was the user's choice.
+**Guard rails:** after-commit incremental sync, plus rebuild on start and
+nightly. Seat counts are re-read from Postgres for each result page. A
+Postgres fallback runs when the index is down. Bookings never read the
+index. See `docs/architecture.md` §7a.
+**Trade-off:** a sixth production service and millisecond index lag, in
+exchange for better search UX.
+
+## 2026-10-09 — Warm, minimal visual language for Seatwise Desk
+
+**Decision:** an original token-based theme. Cream canvas, terracotta
+accent, serif headings over a sans body, hairline borders, generous
+whitespace, and light and dark modes (`docs/architecture.md` §10).
+**Why:** a calm, legible UI suits non-technical staff under time pressure.
+This was the user's choice.
+**Constraint:** no third-party logos, names or brand assets. Fonts are
+open-licence (`Source Serif 4`, `Inter`) and self-hosted.

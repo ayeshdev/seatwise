@@ -1,0 +1,138 @@
+# Seatwise local stack: database, identity provider, API and the staff desk.
+#   cp .env.example .env   (optional: every value below has a working default)
+#   docker compose up -d --build --wait
+# Desk: http://localhost:4280 · API: http://localhost:8280 · Keycloak: http://localhost:8281
+# Meilisearch: http://localhost:7710 (dev only) · Postgres: localhost:5442
+name: seatwise
+
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: seatwise-db
+    environment:
+      POSTGRES_DB: seatwise
+      POSTGRES_USER: ${DB_USER:-seatwise}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-seatwise}
+      KEYCLOAK_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-keycloak}
+    ports:
+      - "${DB_PORT:-5442}:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d seatwise"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  idp:
+    image: quay.io/keycloak/keycloak:26.4
+    container_name: seatwise-idp
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-keycloak}
+      # Tokens are issued for the URL the browser uses; the API reaches Keycloak
+      # over the internal network, which the dynamic backchannel allows.
+      KC_HOSTNAME: http://localhost:${IDP_PORT:-8281}
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      KC_HEALTH_ENABLED: "true"
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USER:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      SEATWISE_DESK_URL: http://localhost:${DESK_PORT:-4280}
+      SEATWISE_DESK_DEV_URL: http://localhost:4210
+      SEATWISE_PROVISIONER_SECRET: ${SEATWISE_PROVISIONER_SECRET:-dev-provisioner-secret}
+      SEATWISE_DEV_TOOLS_ENABLED: ${SEATWISE_DEV_TOOLS_ENABLED:-true}
+    ports:
+      - "${IDP_PORT:-8281}:8080"
+    volumes:
+      - ./infra/keycloak/seatwise-realm.json:/opt/keycloak/data/import/seatwise-realm.json:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      # The image has no curl; probe the management port with bash's /dev/tcp.
+      test:
+        - CMD-SHELL
+        - >-
+          exec 3<>/dev/tcp/localhost/9000 &&
+          printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
+          grep -q '"UP"' <&3
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  search:
+    image: getmeili/meilisearch:v1.43.0
+    container_name: seatwise-search
+    environment:
+      MEILI_MASTER_KEY: ${SEATWISE_SEARCH_MASTER_KEY:-dev-search-master-key-change-me}
+      MEILI_ENV: development
+      MEILI_NO_ANALYTICS: "true"
+    ports:
+      - "${SEARCH_PORT:-7710}:7700"
+    volumes:
+      - search-data:/meili_data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:7700/health | grep -q available"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: backend
+    image: seatwise-api:local
+    container_name: seatwise-api
+    environment:
+      SPRING_PROFILES_ACTIVE: ${API_PROFILES:-dev,demo}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/seatwise
+      SPRING_DATASOURCE_USERNAME: ${DB_USER:-seatwise}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-seatwise}
+      SEATWISE_OIDC_ISSUER: http://localhost:${IDP_PORT:-8281}/realms/seatwise
+      SEATWISE_OIDC_JWKS: http://idp:8080/realms/seatwise/protocol/openid-connect/certs
+      SEATWISE_KEYCLOAK_ADMIN_BASE: http://idp:8080
+      SEATWISE_PROVISIONER_SECRET: ${SEATWISE_PROVISIONER_SECRET:-dev-provisioner-secret}
+      SEATWISE_BOOTSTRAP_ADMIN_EMAIL: ${SEATWISE_BOOTSTRAP_ADMIN_EMAIL:-admin@seatwise.local}
+      SEATWISE_BOOTSTRAP_ADMIN_PASSWORD: ${SEATWISE_BOOTSTRAP_ADMIN_PASSWORD:-Admin#Seatwise1}
+      SEATWISE_BOOTSTRAP_PASSWORD_TEMPORARY: ${SEATWISE_BOOTSTRAP_PASSWORD_TEMPORARY:-false}
+      SEATWISE_DEMO_MANAGER_PASSWORD: ${SEATWISE_DEMO_MANAGER_PASSWORD:-Manager#Seatwise1}
+      SEATWISE_DEMO_STAFF_PASSWORD: ${SEATWISE_DEMO_STAFF_PASSWORD:-Staff#Seatwise1}
+      SEATWISE_CENTRE_TIMEZONE: ${SEATWISE_CENTRE_TIMEZONE:-Europe/London}
+      SEATWISE_SEARCH_URL: http://search:7700
+      SEATWISE_SEARCH_MASTER_KEY: ${SEATWISE_SEARCH_MASTER_KEY:-dev-search-master-key-change-me}
+      JAVA_OPTS: -XX:MaxRAMPercentage=75
+    ports:
+      - "${API_PORT:-8280}:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+      idp:
+        condition: service_healthy
+      # Not a hard dependency at runtime (search falls back to Postgres), but
+      # starting it first lets the startup reindex succeed on the first boot.
+      search:
+        condition: service_healthy
+
+  desk:
+    build:
+      context: frontend
+    image: seatwise-desk:local
+    container_name: seatwise-desk
+    environment:
+      API_UPSTREAM: http://api:8080
+      SEATWISE_IDP_URL: http://localhost:${IDP_PORT:-8281}
+      SEATWISE_REALM: seatwise
+      SEATWISE_CLIENT_ID: seatwise-desk
+    ports:
+      - "${DESK_PORT:-4280}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  db-data:
+  search-data:

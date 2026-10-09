@@ -36,6 +36,7 @@ In the order the brief ranks them:
 | Build | Gradle (wrapper) | 9.x |
 | Database | PostgreSQL + Flyway | 17 |
 | Identity | Keycloak (OIDC, Authorization Code + PKCE) | 26.x |
+| Search | Meilisearch (workshop search index) + `meilisearch-java` client | v1.43.x |
 | Frontend | Angular (standalone components, signals) + Tailwind CSS | 20.3.x, TS 5.9 |
 | Frontend tooling | pnpm, Jest, Playwright | pnpm 9 |
 | Runtime | Docker / Docker Compose locally, Dokploy in production | — |
@@ -49,6 +50,10 @@ time goes into the domain instead of the tooling. It also fits the problem:
   just by application code.
 - **Spring Modulith** keeps four small domains honest without turning them
   into microservices.
+- **Meilisearch** gives front-desk staff instant, typo-tolerant search
+  ("potery" still finds Pottery) with filters and facets. It's a *read
+  index only*: PostgreSQL stays the source of truth, and bookings never
+  consult it (section 7a).
 - **Keycloak** gives us password storage, hashing, login screens,
   password-change-on-first-login and session handling for free. None of that
   should be hand-rolled in a 3-hour build.
@@ -70,8 +75,9 @@ flowchart LR
     DESK -->|/api/v1 + Bearer JWT| API[Seatwise API<br/>Spring Boot]
     API -->|JWKS, token validation| IDP
     API -->|Admin REST API<br/>service account| IDP
-    API -->|JDBC| DB[(PostgreSQL<br/>db: seatwise)]
-    IDP -->|JDBC| KDB[(PostgreSQL<br/>db: keycloak)]
+    API -->|JDBC, db: seatwise| DB[(PostgreSQL<br/>one service, two databases)]
+    API -->|index sync + search<br/>internal only| MS[(Meilisearch<br/>index: workshops)]
+    IDP -->|JDBC, db: keycloak| DB
 ```
 
 Attendees never touch the system. They are records typed in by staff, with no
@@ -86,7 +92,8 @@ accounts and no logins.
 | `seatwise-desk` | `nginx:1.27-alpine` + built SPA | Serves the SPA. Reverse-proxies `/api/*` to the API, so the browser sees one origin and no CORS is needed. Writes `/config.json` from env vars at start, so one image runs in every environment. |
 | `seatwise-api` | `eclipse-temurin:25-jre` + boot jar | REST API, business rules, Flyway migrations on start, first-Admin bootstrap. |
 | `seatwise-idp` | `quay.io/keycloak/keycloak:26.x` + realm file | Authentication only: login, passwords, sessions, token issuing. |
-| `seatwise-db` | `postgres:17-alpine` | Two databases, `seatwise` (app) and `keycloak` (IdP). |
+| `seatwise-db` | `postgres:17-alpine` | One shared Postgres service with two databases: `seatwise` (app) and `keycloak` (IdP, own role). Same layout locally and on Dokploy. |
+| `seatwise-search` | `getmeili/meilisearch:v1.43.0` | Workshop search index. Internal network only, reached only by the API, protected by a master key. All its data can be rebuilt from PostgreSQL at any time. |
 
 ### Authentication vs authorization: a deliberate split
 
@@ -128,6 +135,10 @@ flowchart TB
     subgraph audit["audit"]
         AL[AuditRecorder<br/>@EventListener]
     end
+    subgraph search["search"]
+        WS[WorkshopIndexer<br/>after-commit listener]
+        WQ[WorkshopSearchController<br/>GET /workshops]
+    end
     subgraph common["common (OPEN)"]
         SEC[security config, ProblemDetail errors,<br/>Clock, actor resolution]
     end
@@ -138,6 +149,9 @@ flowchart TB
     accounts -. events .-> AL
     workshops -. events .-> AL
     registrations -. events .-> AL
+    workshops -. events .-> WS
+    registrations -. events .-> WS
+    search -->|fresh rows for re-index<br/>and result hydration| WC
 ```
 
 | Module | Owns (tables) | Public API (module root) | Publishes |
@@ -146,6 +160,7 @@ flowchart TB
 | `workshops` | `workshop`, `location` | `WorkshopCatalogue` (read views), `SeatInventory` (`tryClaimSeat`, `releaseSeat`, `requireBookable`) | `WorkshopScheduled`, `WorkshopUpdated`, `WorkshopCancelled` |
 | `registrations` | `registration` | none (leaf module) | `AttendeeRegistered`, `AttendeeWaitlisted`, `RegistrationCancelled`, `WaitlistPromoted` |
 | `audit` | `audit_event` | `AuditTrail` (query) | none |
+| `search` | Meilisearch index `workshops` (no tables) | none (leaf module; owns the `GET /api/v1/workshops` list/search endpoint) | none |
 | `common` | none | security, error model, `ActorProvider`, `Clock` bean | none |
 
 **Inside a module:** `internal/` holds the `@RestController`, the
@@ -350,6 +365,112 @@ UPDATE registration
 
 ---
 
+## 7a. Search with Meilisearch
+
+**Role:** Meilisearch serves the workshop list and search screen ("which
+workshops this week still have seats"). It is a **derived read index**.
+PostgreSQL remains the source of truth, and nothing that changes data reads
+from Meilisearch. The capacity rule (section 7) never consults it.
+
+### Index `workshops`
+
+One document per workshop:
+
+```json
+{
+  "id": "6f1c…", "code": "POT-0412", "title": "Wheel-throwing for beginners",
+  "instructor": "Amara Silva", "description": "…",
+  "locationId": "…", "locationName": "Riverside",
+  "startsAt": 1760169600, "endsAt": 1760176800,
+  "lifecycle": "SCHEDULED", "capacity": 20, "seatsTaken": 17, "seatsLeft": 3
+}
+```
+
+Times are stored as epoch seconds so they can be range-filtered.
+
+| Setting | Value |
+|---|---|
+| `searchableAttributes` | `code`, `title`, `instructor`, `locationName`, `description` (in ranking order) |
+| `filterableAttributes` | `startsAt`, `endsAt`, `lifecycle`, `locationId`, `seatsLeft` |
+| `sortableAttributes` | `startsAt`, `title` |
+| Typo tolerance | Default. Disabled on `code`, so `POT-0412` doesn't fuzzily match `POT-0421`. |
+| `pagination.maxTotalHits` | 1000 |
+
+### Query translation
+
+`GET /api/v1/workshops?q=&from=&to=&status=&locationId=&hasSeats=` maps to
+one Meilisearch search:
+
+| API filter | Meilisearch filter |
+|---|---|
+| `from` / `to` (dates in the centre timezone) | `startsAt >= <from 00:00 local> AND startsAt < <to+1 00:00 local>` |
+| `status=OPEN` | `lifecycle = SCHEDULED AND startsAt > <now> AND seatsLeft > 0` |
+| `status=FULL` | `lifecycle = SCHEDULED AND startsAt > <now> AND seatsLeft = 0` |
+| `status=IN_PROGRESS` | `lifecycle = SCHEDULED AND startsAt <= <now> AND endsAt > <now>` |
+| `status=COMPLETED` | `lifecycle = SCHEDULED AND endsAt <= <now>` |
+| `status=CANCELLED` | `lifecycle = CANCELLED` |
+| several statuses | Each condition above, combined with `OR` |
+| `hasSeats=true` | `seatsLeft > 0 AND lifecycle = SCHEDULED AND startsAt > <now>` |
+| `locationId` | `locationId = <id>` |
+| `q` | Meilisearch's full-text query |
+| sort | `startsAt:asc` by default, unless `q` is present (then relevance first) |
+
+Derived status needs no stored flag here either. Time-based conditions are
+evaluated at query time against `now`.
+
+### Keeping the index in sync
+
+- **Incremental:** `search.internal.WorkshopIndexer` listens with
+  `@TransactionalEventListener(phase = AFTER_COMMIT)` to `WorkshopScheduled`,
+  `WorkshopUpdated`, `WorkshopCancelled`, `AttendeeRegistered`,
+  `RegistrationCancelled` and `WaitlistPromoted`. It re-reads the workshop
+  from `WorkshopCatalogue` (committed state, never the event payload) and
+  upserts the document. It runs after commit, so a rolled-back booking never
+  reaches the index.
+- **Full rebuild:** `SearchIndexBootstrap` applies the index settings and
+  re-indexes every workshop on application start, plus on a
+  `@Scheduled` nightly reconcile. The data set is small (hundreds of
+  workshops), so a full rebuild takes well under a second. This also heals
+  any missed update.
+- **Failure handling:** indexing failures are logged and retried by the next
+  event or reconcile. They never fail the user's booking, which has already
+  committed.
+
+### Freshness and correctness
+
+The index lags PostgreSQL by milliseconds after each commit, and by at most
+one reconcile cycle if an update was lost. To keep the screen honest:
+
+1. **Hydration:** after Meilisearch returns a page of ids (≤ 100), the API
+   reloads `seatsTaken`, `capacity` and `lifecycle` for exactly those ids
+   from PostgreSQL. The derived status and seat meter are always exact.
+2. **The booking path ignores the index.** Even if a "has seats" result is a
+   few milliseconds stale, registering still goes through the atomic
+   PostgreSQL claim (section 7). The worst case is a polite "the last seat
+   was just taken".
+
+### Degraded mode
+
+If Meilisearch is unreachable, `WorkshopSearch` falls back to an equivalent
+PostgreSQL query (JPA Specification over the same filters, `ILIKE` for
+`q`). The response carries `"searchMode": "fallback"`, and the UI shows a
+subtle "Search is running in basic mode" note. Staff can always find
+workshops, which matters more than typo tolerance. The Postgres
+implementation also serves as the reference in tests: both
+implementations must return the same ids for the same filters on the demo
+data.
+
+### Security
+
+Meilisearch has no public domain or port in production. The API holds the
+master key from the environment and, at bootstrap, derives a scoped API key
+(`search` + `documents.*` + `settings.*` on index `workshops` only) for
+runtime use. Authorization stays in the API: `GET /workshops` is
+`CAN_VIEW_CATALOGUE` (Manager, Staff). Meilisearch is never called from the
+browser.
+
+---
+
 ## 8. Security model
 
 ### Permission matrix (enforced in the API)
@@ -438,7 +559,7 @@ REST + JSON under `/api/v1`. The OpenAPI document is served by springdoc at
 | PATCH | `/staff-accounts/{id}` | Change fullName / role / active (with `version`) |
 | POST | `/staff-accounts/{id}/password-reset` | Set a new temporary password |
 | GET | `/locations` | The three centre locations |
-| GET | `/workshops` | Search: `from`, `to`, `status` (multi), `locationId`, `hasSeats`, `q` (code/title/instructor), `page`, `size`, `sort` |
+| GET | `/workshops` | Search via Meilisearch (section 7a): `from`, `to`, `status` (multi), `locationId`, `hasSeats`, `q` (typo-tolerant over code/title/instructor/location/description), `page`, `size`, `sort`. Response adds `searchMode: "index" \| "fallback"` |
 | GET | `/workshops/{id}` | Detail incl. `capacity`, `seatsTaken`, `seatsLeft`, `waitlistCount`, derived `status`, `version` |
 | POST | `/workshops` | Schedule a workshop |
 | PUT | `/workshops/{id}` | Edit (body carries `version`; stale → `409 STALE_VERSION`) |
@@ -496,6 +617,45 @@ frontend/src/app/
 └── shared/ui/         badge, seat meter, confirm dialog, empty state, date-range presets, data table
 ```
 
+**Visual language: warm and minimal**
+
+The UI uses a calm, warm, editorial look, so a busy front desk feels in
+control rather than rushed. It's an original theme with no third-party
+logos or brand assets. It's defined once as design tokens (CSS custom
+properties feeding the Tailwind theme in `tailwind.config.js`):
+
+| Token | Light | Dark | Use |
+|---|---|---|---|
+| `--canvas` | `#FAF9F5` (warm cream) | `#262624` | Page background |
+| `--surface` | `#FFFFFF` | `#30302E` | Cards, tables, dialogs |
+| `--surface-muted` | `#F0EEE6` | `#3A3936` | Table header, filter bar, hover |
+| `--ink` | `#1F1E1D` | `#F5F4EF` | Primary text |
+| `--ink-muted` | `#6B6963` | `#B7B5AC` | Secondary text, captions |
+| `--line` | `#E5E2D9` | `#45443F` | Borders, dividers |
+| `--accent` | `#C96442` (terracotta) | `#D97757` | Primary buttons, links, focus ring, seat meter fill |
+| `--accent-soft` | `#F5E6DD` | `#4A3329` | Selected chips, active nav |
+| `--ok` | `#4F7A5A` (sage) | `#7FAE89` | OPEN badge |
+| `--warn` | `#B7791F` (ochre) | `#D9A548` | "1–3 seats left" |
+| `--full` | `#A4442E` | `#E08A70` | FULL badge |
+| `--quiet` | `#8A877E` | `#9C998F` | CANCELLED / COMPLETED badge |
+
+- **Type:** headings in a serif (`Source Serif 4`, 600). UI and body text
+  in a humanist sans (`Inter`, 400/500). Numbers in tables use
+  `font-variant-numeric: tabular-nums`. Base size 15 px with roomy line
+  height.
+- **Shape and depth:** 10 px radius on cards and inputs, 8 px on buttons and
+  chips. Hairline borders (`--line`) instead of heavy shadows, with a single
+  soft shadow for dialogs only.
+- **Space:** generous whitespace, content max-width 1200 px, 8-pt spacing
+  scale. One primary (terracotta) action per view. Everything else is a
+  quiet secondary or ghost button.
+- **Motion:** 150 ms ease-out for hover and dialog fade. It respects
+  `prefers-reduced-motion`.
+- **Theme:** follows `prefers-color-scheme`, with a manual light/dark
+  toggle in the top bar (remembered per browser).
+- **Contrast:** every token pair used for text meets WCAG AA (≥ 4.5:1).
+  Colour is never the only status signal, because badges always carry text.
+
 **Screens by role**
 
 | Role | Lands on | Sees |
@@ -535,6 +695,7 @@ frontend/src/app/
 |---|---|---|---|
 | `db` | `seatwise-db` | 5442 | `infra/postgres/init/` creates `seatwise` + `keycloak` DBs |
 | `idp` | `seatwise-idp` | 8281 | `start-dev --import-realm`, realm file `infra/keycloak/seatwise-realm.json` |
+| `search` | `seatwise-search` | 7710 | Meilisearch, `MEILI_ENV=development`, volume `search-data` |
 | `api` | `seatwise-api` | 8280 | profiles `dev,demo` (seeds sample workshops + demo Manager/Staff) |
 | `desk` | `seatwise-desk` | 4280 | nginx, proxies `/api` → `api:8080` |
 
@@ -556,9 +717,11 @@ flowchart LR
         APIP[seatwise-api<br/>internal only]
         IDPP[seatwise-idp<br/>auth.example.com]
         PG[(Dokploy Postgres)]
+        MSP[(seatwise-search<br/>Meilisearch, internal only)]
     end
     DESKP -->|/api proxy| APIP
     APIP --> PG
+    APIP --> MSP
     IDPP --> PG
     APIP -->|JWKS, admin API| IDPP
 ```
@@ -584,7 +747,7 @@ Full pipeline: `plans/cicd-dokploy.md`.
 | Authorization matrix | `@WebMvcTest` + `spring-security-test` `jwt()` | Every endpoint × role → allowed / 403 / 401 |
 | Domain services | JUnit 5 + Testcontainers PostgreSQL | Register / cancel / waitlist promotion, duplicate email, capacity edit rules |
 | **Concurrency** | Testcontainers + `ExecutorService` + `CountDownLatch` | 50 parallel bookings, 20 seats → exactly 20 succeed; `seats_taken` equals the active count |
-| Repository / search | Testcontainers | Date-range / status / has-seats filters, timezone edges |
+| Search | Testcontainers PostgreSQL + Meilisearch (`GenericContainer`) | Every filter, typo tolerance, timezone week boundary. The index reflects a booking/cancel after commit. A rolled-back booking never reaches the index. Index and fallback return the same ids. Hydration overrides stale seat counts. |
 | Frontend units | Jest + jest-preset-angular | Guards, interceptors, SessionStore, filter→query mapping |
 | End to end | Playwright against the Compose stack | Log in as each demo role; book the last seat; see the full-workshop message; cancel; see the seat freed |
 
@@ -595,14 +758,13 @@ Full pipeline: `plans/cicd-dokploy.md`.
 ```
 seatwise/
 ├── backend/                 Spring Boot app (Gradle wrapper, Dockerfile)
-│   └── src/main/java/com/seatwise/{accounts,workshops,registrations,audit,common}/
+│   └── src/main/java/com/seatwise/{accounts,workshops,registrations,audit,search,common}/
 │   └── src/main/resources/db/migration/   V1__… Flyway
 │   └── src/main/resources/db/demo/        R__demo_workshops.sql (demo profile only)
-├── frontend/                Angular app seatwise-desk (pnpm, Dockerfile, nginx template)
+├── frontend/                Angular app seatwise-desk (pnpm, Dockerfile, nginx/desk.conf.template)
 ├── infra/
-│   ├── keycloak/seatwise-realm.json
-│   ├── postgres/init/01-databases.sql
-│   └── nginx/desk.conf.template
+│   ├── keycloak/            seatwise-realm.json + production Dockerfile
+│   └── postgres/init/01-databases.sh
 ├── docs/                    architecture.md, srs.md, design-notes.md (the one-pager)
 ├── plans/                   implementation-plan.md, cicd-dokploy.md
 ├── .github/workflows/       ci.yml, deliver.yml
@@ -622,7 +784,9 @@ seatwise/
 | Keycloak instead of hand-rolled auth | One more container to run, and a heavier local setup than a JWT-only API. In return there's no password handling in our code. |
 | Spring Modulith monolith, not services | One deployable, and modules can't scale separately. That's right for 15 users. |
 | Synchronous audit in the same transaction | Audit write latency is on the request path (negligible). |
-| Derived workshop status | Status filter is a computed predicate instead of a column equality. Indexes on `starts_at` cover it. |
+| Derived workshop status | Status filter is a computed predicate instead of a column equality, evaluated at query time in Meilisearch and in the Postgres fallback alike. |
+| Meilisearch as a derived read index | One more container, and an index that lags by milliseconds. Mitigated by after-commit sync, startup and nightly rebuilds, hydrating seat counts from PostgreSQL, and a Postgres fallback. Bookings never depend on it. |
+| Warm, minimal token-based theme | A small custom token set instead of a component library's look. Every screen inherits it, and dark mode is a token swap. |
 | Waitlist auto-promotes and staff phone the attendee | No self-service "accept the offer" flow. Fine because attendees have no accounts. |
 | Polling for seat counts | Up to 15 s staleness on screen. The API is always authoritative, so a stale screen can't overbook. |
 | Admin can't view workshops (literal reading of the brief) | An Admin who wants to help at the front desk needs a Staff account too. |
