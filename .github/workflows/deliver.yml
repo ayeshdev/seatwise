@@ -1,0 +1,147 @@
+name: deliver
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Existing tag to (re)deploy, e.g. sha-1a2b3c4. Empty = build this commit.'
+        required: false
+
+concurrency:
+  group: deliver-production
+  cancel-in-progress: false        # never stop a release halfway
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  gate:
+    if: ${{ inputs.image_tag == '' }}
+    uses: ./.github/workflows/ci.yml
+
+  images:
+    needs: gate
+    if: ${{ inputs.image_tag == '' }}
+    # GitHub-hosted, never the production box. Native arm64 or amd64 per §4b.
+    runs-on: ${{ vars.IMAGE_RUNNER || 'ubuntu-24.04' }}
+    permissions: { contents: read, packages: write }
+    strategy:
+      matrix:
+        include:
+          - { name: api,  context: backend,        file: backend/Dockerfile }
+          - { name: desk, context: frontend,       file: frontend/Dockerfile }
+          - { name: idp,  context: infra/keycloak, file: infra/keycloak/Dockerfile }
+    steps:
+      - uses: actions/checkout@v4
+      # GHCR image names must be lower-case; the owner name may not be.
+      - run: echo "IMAGE_PREFIX=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/seatwise" >> "$GITHUB_ENV"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with: { registry: ghcr.io, username: '${{ github.actor }}', password: '${{ secrets.GITHUB_TOKEN }}' }
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}-${{ matrix.name }}
+          tags: |
+            type=sha,prefix=sha-,format=short
+            type=raw,value=main
+          labels: org.opencontainers.image.revision=${{ github.sha }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          push: true
+          platforms: ${{ vars.IMAGE_PLATFORM || 'linux/amd64' }}   # must match the server (§4b)
+          build-args: GIT_SHA=${{ github.sha }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+  deploy:
+    needs: images
+    if: ${{ always() && (needs.images.result == 'success' || inputs.image_tag != '') }}
+    # The self-hosted runner on the Dokploy server (§4a). No checkout: nothing
+    # from the repository is executed on the production box, only this script.
+    runs-on: [self-hosted, linux, seatwise-deploy]
+    timeout-minutes: 15
+    environment:
+      name: production
+      url: ${{ vars.PUBLIC_DESK_URL }}
+    steps:
+      - name: Resolve image prefix and tag
+        id: tag
+        run: |
+          echo "IMAGE_PREFIX=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/seatwise" >> "$GITHUB_ENV"
+          if [ -n "${{ inputs.image_tag }}" ]; then echo "tag=${{ inputs.image_tag }}" >> "$GITHUB_OUTPUT"
+          else echo "tag=sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"; fi
+      - name: Check the Dokploy API answers and the key works
+        env:
+          DOKPLOY_URL: ${{ vars.DOKPLOY_URL }}
+          DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
+        run: |
+          # An authenticated read that only Dokploy answers with a JSON array.
+          # A bare "does the port answer" check would pass against any app on
+          # that port and then send the deploy calls to the wrong place.
+          body=$(mktemp)
+          code=$(curl -sS -o "$body" -w '%{http_code}' --max-time 10 \
+            -H "x-api-key: $DOKPLOY_API_KEY" "$DOKPLOY_URL/api/project.all") || code=000
+          if [ "$code" != 200 ] || ! jq -e 'type == "array"' "$body" > /dev/null; then
+            echo "No Dokploy API at $DOKPLOY_URL (HTTP $code): wrong port or app, Dokploy down, or a bad API key."
+            exit 1
+          fi
+      - name: Deploy idp → api → desk
+        env:
+          DOKPLOY_URL: ${{ vars.DOKPLOY_URL }}
+          DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          deploy() {  # $1 = app id, $2 = image
+            # Point the app at the exact immutable tag. Credentials are null:
+            # Dokploy pulls with the registry login saved once on the server (§5.2).
+            curl -fsS -X POST "$DOKPLOY_URL/api/application.saveDockerProvider" \
+              -H "x-api-key: $DOKPLOY_API_KEY" -H 'Content-Type: application/json' \
+              -d "{\"applicationId\":\"$1\",\"dockerImage\":\"$2\",\"username\":null,\"password\":null,\"registryUrl\":null}"
+            curl -fsS -X POST "$DOKPLOY_URL/api/application.deploy" \
+              -H "x-api-key: $DOKPLOY_API_KEY" -H 'Content-Type: application/json' \
+              -d "{\"applicationId\":\"$1\"}"
+          }
+          deploy "${{ vars.DOKPLOY_APP_ID_IDP }}"  "$IMAGE_PREFIX-idp:$TAG"
+          deploy "${{ vars.DOKPLOY_APP_ID_API }}"  "$IMAGE_PREFIX-api:$TAG"
+          deploy "${{ vars.DOKPLOY_APP_ID_DESK }}" "$IMAGE_PREFIX-desk:$TAG"
+          echo "Deployed $TAG" >> "$GITHUB_STEP_SUMMARY"
+
+  verify:
+    needs: deploy
+    runs-on: [self-hosted, linux, seatwise-deploy]
+    timeout-minutes: 10
+    steps:
+      - name: Wait for health and prove the running SHA
+        env:
+          DESK: ${{ vars.PUBLIC_DESK_URL }}
+          IDP: ${{ vars.PUBLIC_IDP_URL }}
+          EXPECTED: ${{ inputs.image_tag != '' && '' || github.sha }}
+        run: |
+          set -euo pipefail
+          # Talk to the local Traefik with the real host names (correct SNI and
+          # certificates) instead of hair-pinning out through the server's own
+          # public IP, which cloud NAT often doesn't route back.
+          DESK_HOST=${DESK#https://}; IDP_HOST=${IDP#https://}
+          c() { curl -fsS --max-time 10 --resolve "$DESK_HOST:443:127.0.0.1" --resolve "$IDP_HOST:443:127.0.0.1" "$@"; }
+          for i in $(seq 1 40); do
+            if c "$DESK/api/actuator/health/readiness" | grep -q '"UP"'; then break; fi
+            sleep 6
+          done
+          c "$DESK/api/actuator/health/readiness" | grep -q '"UP"'
+          c "$DESK/" | grep -qi '<sw-root'
+          c "$IDP/realms/seatwise/.well-known/openid-configuration" > /dev/null
+          if [ -n "$EXPECTED" ]; then
+            RUNNING=$(c "$DESK/api/actuator/info" | jq -r '."git-sha"')
+            echo "running=$RUNNING expected=$EXPECTED"
+            [ "$RUNNING" = "$EXPECTED" ]
+          fi
