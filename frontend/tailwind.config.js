@@ -37,6 +37,13 @@ module.exports = {
         card: 'var(--radius-card)',
         button: 'var(--radius-button)',
       },
+      // The one soft shadow in the design: dialogs and toasts only.
+      boxShadow: {
+        dialog: '0 12px 40px rgb(var(--ink) / 0.18)',
+      },
+      maxWidth: {
+        content: '1200px',
+      },
     },
   },
   plugins: [require('@tailwindcss/forms')],
