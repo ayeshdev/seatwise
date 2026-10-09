@@ -1,7 +1,6 @@
 package com.seatwise.common.security;
 
 import com.seatwise.common.config.SeatwiseProperties;
-import java.util.List;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.convert.converter.Converter;
@@ -12,13 +11,8 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
-import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
-import org.springframework.security.oauth2.core.OAuth2Error;
-import org.springframework.security.oauth2.core.OAuth2TokenValidator;
-import org.springframework.security.oauth2.core.OAuth2TokenValidatorResult;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
-import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.web.SecurityFilterChain;
 import tools.jackson.databind.json.JsonMapper;
@@ -87,20 +81,8 @@ public class SecurityConfig {
     public JwtDecoder jwtDecoder(SeatwiseProperties props) {
         NimbusJwtDecoder decoder =
                 NimbusJwtDecoder.withJwkSetUri(props.oidc().jwksUri()).build();
-        // createDefaultWithIssuer already covers the timestamp check.
-        decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(
-                JwtValidators.createDefaultWithIssuer(props.oidc().issuer()),
-                audienceValidator(props.oidc().audience())));
+        // Issuer, audience and timestamps; built in JwtValidation so the exact chain is unit-tested.
+        decoder.setJwtValidator(JwtValidation.validator(props.oidc().issuer(), props.oidc().audience()));
         return decoder;
-    }
-
-    private static OAuth2TokenValidator<Jwt> audienceValidator(String requiredAudience) {
-        OAuth2Error error = new OAuth2Error("invalid_token", "The required audience is missing", null);
-        return jwt -> {
-            List<String> audience = jwt.getAudience();
-            return audience != null && audience.contains(requiredAudience)
-                    ? OAuth2TokenValidatorResult.success()
-                    : OAuth2TokenValidatorResult.failure(error);
-        };
     }
 }

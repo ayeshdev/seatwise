@@ -10,6 +10,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.seatwise.accounts.internal.StaffAccountService;
 import com.seatwise.accounts.internal.StaffAuthenticationConverter;
+import com.seatwise.registrations.internal.RegistrationService;
+import com.seatwise.search.internal.WorkshopSearch;
+import com.seatwise.workshops.internal.WorkshopService;
 import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -39,6 +42,16 @@ class AuthenticationFailureResponsesTest {
 
     @MockitoBean
     private StaffAccountService staffAccountService;
+
+    // Every controller is loaded by @WebMvcTest, so each one's service is mocked.
+    @MockitoBean
+    private WorkshopService workshopService;
+
+    @MockitoBean
+    private RegistrationService registrationService;
+
+    @MockitoBean
+    private WorkshopSearch workshopSearch;
 
     @MockitoBean
     private StaffAuthenticationConverter converter;
