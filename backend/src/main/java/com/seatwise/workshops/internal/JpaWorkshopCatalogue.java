@@ -1,6 +1,7 @@
 package com.seatwise.workshops.internal;
 
 import com.seatwise.common.web.PageResponse;
+import com.seatwise.workshops.LocationView;
 import com.seatwise.workshops.WorkshopCatalogue;
 import com.seatwise.workshops.WorkshopQuery;
 import com.seatwise.workshops.WorkshopView;
@@ -20,11 +21,14 @@ import org.springframework.transaction.annotation.Transactional;
 class JpaWorkshopCatalogue implements WorkshopCatalogue {
 
     private final WorkshopRepository repository;
+    private final LocationRepository locations;
     private final WorkshopViews views;
     private final Clock clock;
 
-    JpaWorkshopCatalogue(WorkshopRepository repository, WorkshopViews views, Clock clock) {
+    JpaWorkshopCatalogue(
+            WorkshopRepository repository, LocationRepository locations, WorkshopViews views, Clock clock) {
         this.repository = repository;
+        this.locations = locations;
         this.views = views;
         this.clock = clock;
     }
@@ -52,5 +56,10 @@ class JpaWorkshopCatalogue implements WorkshopCatalogue {
                 PageRequest.of(query.page(), query.size(), WorkshopSpecifications.sort(query.sort())));
         List<WorkshopView> items = views.toViews(page.getContent(), now);
         return new PageResponse<>(items, page.getNumber(), page.getSize(), page.getTotalElements());
+    }
+
+    @Override
+    public Optional<LocationView> findLocation(UUID id) {
+        return locations.findById(id).map(LocationEntity::toView);
     }
 }

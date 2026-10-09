@@ -20,4 +20,7 @@ public interface WorkshopCatalogue {
 
     /** The PostgreSQL implementation of workshop search (filters, paging, sort). */
     PageResponse<WorkshopView> search(WorkshopQuery query);
+
+    /** Any location by id, active or not, e.g. to name the old location of an edit in the audit trail. */
+    Optional<LocationView> findLocation(UUID id);
 }

@@ -23,11 +23,13 @@ public final class Policies {
     /** View workshops, locations, registrations and their history. */
     public static final String CAN_VIEW_CATALOGUE = "hasAnyRole('MANAGER','STAFF')";
 
-    /** Audit events about staff accounts. */
-    public static final String CAN_VIEW_ACCOUNT_AUDIT = "hasRole('ADMIN')";
-
-    /** Audit events about workshops and registrations. */
-    public static final String CAN_VIEW_WORKSHOP_AUDIT = "hasAnyRole('MANAGER','STAFF')";
+    /**
+     * The audit trail endpoint. Every role may call it, but what each sees
+     * depends on the filters, so the split is enforced in the audit module's
+     * query service: Admin gets staff-account events only, Manager and Staff
+     * get workshop and registration events only (403 FORBIDDEN otherwise).
+     */
+    public static final String CAN_VIEW_AUDIT = "hasAnyRole('ADMIN','MANAGER','STAFF')";
 
     /** Any active staff member, whatever the role (e.g. own profile). */
     public static final String ANY_STAFF = "isAuthenticated()";

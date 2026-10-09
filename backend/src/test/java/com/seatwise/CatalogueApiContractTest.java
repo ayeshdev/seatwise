@@ -19,6 +19,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.seatwise.accounts.StaffRef;
 import com.seatwise.accounts.internal.StaffAccountService;
 import com.seatwise.accounts.internal.StaffAuthenticationConverter;
+import com.seatwise.audit.internal.AuditQueryService;
 import com.seatwise.common.security.ActorProvider;
 import com.seatwise.common.security.SecurityConfig;
 import com.seatwise.registrations.RegistrationStatus;
@@ -76,6 +77,9 @@ class CatalogueApiContractTest {
 
     @MockitoBean
     private WorkshopSearch workshopSearch;
+
+    @MockitoBean
+    private AuditQueryService auditQueryService;
 
     @MockitoBean
     private StaffAccountService staffAccountService;

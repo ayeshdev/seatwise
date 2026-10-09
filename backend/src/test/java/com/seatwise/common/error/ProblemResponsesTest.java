@@ -13,6 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.seatwise.accounts.internal.StaffAccountService;
 import com.seatwise.accounts.internal.StaffAuthenticationConverter;
+import com.seatwise.audit.internal.AuditQueryService;
 import com.seatwise.common.security.AccountInactiveException;
 import com.seatwise.common.security.ActorProvider;
 import com.seatwise.common.security.SecurityConfig;
@@ -65,6 +66,9 @@ class ProblemResponsesTest {
 
     @MockitoBean
     private WorkshopSearch workshopSearch;
+
+    @MockitoBean
+    private AuditQueryService auditQueryService;
 
     @MockitoBean
     private StaffAuthenticationConverter converter;

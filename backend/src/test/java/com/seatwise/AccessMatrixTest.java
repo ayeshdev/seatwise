@@ -14,6 +14,7 @@ import com.seatwise.accounts.internal.StaffAccountResponse;
 import com.seatwise.accounts.internal.StaffAccountService;
 import com.seatwise.accounts.StaffRef;
 import com.seatwise.accounts.internal.StaffAuthenticationConverter;
+import com.seatwise.audit.internal.AuditQueryService;
 import com.seatwise.common.security.ActorProvider;
 import com.seatwise.common.security.SecurityConfig;
 import com.seatwise.common.security.StaffPrincipal;
@@ -115,8 +116,10 @@ class AccessMatrixTest {
             row(HttpMethod.POST, "/api/v1/workshops/{id}/registrations", """
                     {"attendeeName":"Dana Lee","attendeeEmail":"dana@example.com"}""", DESK),
             row(HttpMethod.POST, "/api/v1/registrations/{id}/cancel", """
-                    {"reason":null}""", DESK)
-            // ---- audit (B1): add rows here ----
+                    {"reason":null}""", DESK),
+            // ---- audit: every role may call it; which entity types each sees is
+            // decided by the data, see AuditQueryServiceIT ----
+            row(HttpMethod.GET, "/api/v1/audit-events", null, EVERYONE)
     );
 
     @Autowired
@@ -137,6 +140,9 @@ class AccessMatrixTest {
 
     @MockitoBean
     private WorkshopSearch workshopSearch;
+
+    @MockitoBean
+    private AuditQueryService auditQueryService;
 
     @MockitoBean
     private ActorProvider actorProvider;
@@ -176,6 +182,7 @@ class AccessMatrixTest {
         when(registrationService.history(any(), any())).thenReturn(List.of(registration));
         when(registrationService.register(any(), any())).thenReturn(registration);
         when(registrationService.cancel(any(), any())).thenReturn(new CancelResult(registration, null));
+        when(auditQueryService.list(any())).thenReturn(new PageResponse<>(List.of(), 0, 20, 0));
     }
 
     static Stream<Arguments> matrix() {
@@ -209,7 +216,8 @@ class AccessMatrixTest {
         }
         if (caller.role == null || !row.allowed().contains(caller.role)) {
             // A refused request must never reach a service.
-            verifyNoInteractions(staffAccountService, workshopService, registrationService, workshopSearch);
+            verifyNoInteractions(
+                    staffAccountService, workshopService, registrationService, workshopSearch, auditQueryService);
         }
     }
 
