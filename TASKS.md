@@ -4,7 +4,6 @@ Rolling execution window. Pick from the top and delete lines when shipped.
 Full detail: `plans/implementation-plan.md`.
 
 ## Now
-- [ ] P0 Foundations: repo, backend/frontend skeletons, Compose, Keycloak realm, `ci.yml`
 - [ ] P1 Access control: `staff_account`, `/me`, `Policies`, `StaffAuthenticationConverter`, Keycloak provisioner, admin bootstrap, `AccessMatrixTest`
 - [ ] P2 Workshops + capacity rule + registrations + history + `CapacityConcurrencyIT` + demo seed
 - [ ] P3 Frontend end to end on the warm/minimal design tokens (auth, shell, workshops, registrations, staff accounts)
