@@ -5,6 +5,7 @@ import java.util.List;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.convert.converter.Converter;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AbstractAuthenticationToken;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -57,6 +58,17 @@ public class SecurityConfig {
                         // even validated, so a 400 never reveals an endpoint's shape.
                         .requestMatchers("/api/v1/staff-accounts", "/api/v1/staff-accounts/**")
                         .hasRole(StaffRole.ADMIN.name())
+                        // Catalogue: Manager and Staff view; Admin is deliberately absent (A-1).
+                        .requestMatchers(HttpMethod.GET, "/api/v1/workshops", "/api/v1/workshops/**", "/api/v1/locations")
+                        .hasAnyRole(StaffRole.MANAGER.name(), StaffRole.STAFF.name())
+                        // Booking comes before the Manager-only workshop rules so that
+                        // POST /workshops/{id}/registrations is never caught by them.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/workshops/*/registrations", "/api/v1/registrations/*/cancel")
+                        .hasAnyRole(StaffRole.MANAGER.name(), StaffRole.STAFF.name())
+                        .requestMatchers(HttpMethod.POST, "/api/v1/workshops", "/api/v1/workshops/*/cancel")
+                        .hasRole(StaffRole.MANAGER.name())
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/workshops/*")
+                        .hasRole(StaffRole.MANAGER.name())
                         .anyRequest()
                         .authenticated())
                 .exceptionHandling(e -> e.authenticationEntryPoint(problems).accessDeniedHandler(problems))

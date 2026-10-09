@@ -36,6 +36,12 @@ class JpaStaffDirectory implements StaffDirectory {
                 .collect(Collectors.toUnmodifiableMap(StaffSummary::id, Function.identity()));
     }
 
+    @Override
+    public Optional<StaffSummary> findByEmail(String email) {
+        return repository.findByEmailIgnoreCase(StaffAccountEntity.normalizeEmail(email))
+                .map(JpaStaffDirectory::toSummary);
+    }
+
     private static StaffSummary toSummary(StaffAccountEntity e) {
         return new StaffSummary(e.getId(), e.getFullName(), e.getEmail(), e.getRole(), e.isActive());
     }

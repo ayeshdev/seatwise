@@ -1,6 +1,7 @@
 package com.seatwise;
 
 import static com.seatwise.common.security.StaffRole.ADMIN;
+import static com.seatwise.common.security.StaffRole.MANAGER;
 import static com.seatwise.common.security.StaffRole.STAFF;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -11,12 +12,23 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 
 import com.seatwise.accounts.internal.StaffAccountResponse;
 import com.seatwise.accounts.internal.StaffAccountService;
+import com.seatwise.accounts.StaffRef;
 import com.seatwise.accounts.internal.StaffAuthenticationConverter;
 import com.seatwise.common.security.ActorProvider;
 import com.seatwise.common.security.SecurityConfig;
 import com.seatwise.common.security.StaffPrincipal;
 import com.seatwise.common.security.StaffRole;
 import com.seatwise.common.web.PageResponse;
+import com.seatwise.registrations.RegistrationStatus;
+import com.seatwise.registrations.internal.CancelResult;
+import com.seatwise.registrations.internal.RegistrationResponse;
+import com.seatwise.registrations.internal.RegistrationService;
+import com.seatwise.search.internal.WorkshopSearch;
+import com.seatwise.search.internal.WorkshopSearchResult;
+import com.seatwise.workshops.LocationView;
+import com.seatwise.workshops.WorkshopStatus;
+import com.seatwise.workshops.internal.WorkshopResponse;
+import com.seatwise.workshops.internal.WorkshopService;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -70,6 +82,14 @@ class AccessMatrixTest {
 
     private static final Set<StaffRole> EVERYONE = EnumSet.allOf(StaffRole.class);
 
+    /** View the catalogue and book attendees. Admin is deliberately absent (SRS A-1). */
+    private static final Set<StaffRole> DESK = Set.of(MANAGER, STAFF);
+
+    private static final String WORKSHOP_BODY = """
+            {"code":"POT-0412","title":"Pottery wheel basics","instructor":"Amara Silva",
+             "locationId":"3f9a2c4e-1b7d-4e8a-9c01-5d2e6f7a8b01",
+             "startsAt":"2030-01-07T10:00:00Z","endsAt":"2030-01-07T12:00:00Z","capacity":12""";
+
     private static final List<Row> MATRIX = List.of(
             // ---- accounts ----
             row(HttpMethod.GET, "/api/v1/me", null, EVERYONE),
@@ -81,8 +101,22 @@ class AccessMatrixTest {
             row(HttpMethod.PATCH, "/api/v1/staff-accounts/{id}", """
                     {"fullName":"Renamed Person","version":0}""", Set.of(ADMIN)),
             row(HttpMethod.POST, "/api/v1/staff-accounts/{id}/password-reset", """
-                    {"temporaryPassword":"Temporary#Pass1"}""", Set.of(ADMIN))
-            // ---- workshops / registrations (P2), audit (B1): add rows here ----
+                    {"temporaryPassword":"Temporary#Pass1"}""", Set.of(ADMIN)),
+            // ---- workshops ----
+            row(HttpMethod.GET, "/api/v1/locations", null, DESK),
+            row(HttpMethod.GET, "/api/v1/workshops", null, DESK),
+            row(HttpMethod.GET, "/api/v1/workshops/{id}", null, DESK),
+            row(HttpMethod.POST, "/api/v1/workshops", WORKSHOP_BODY + "}", Set.of(MANAGER)),
+            row(HttpMethod.PUT, "/api/v1/workshops/{id}", WORKSHOP_BODY + ",\"version\":0}", Set.of(MANAGER)),
+            row(HttpMethod.POST, "/api/v1/workshops/{id}/cancel", """
+                    {"reason":"Instructor unwell"}""", Set.of(MANAGER)),
+            // ---- registrations ----
+            row(HttpMethod.GET, "/api/v1/workshops/{id}/registrations", null, DESK),
+            row(HttpMethod.POST, "/api/v1/workshops/{id}/registrations", """
+                    {"attendeeName":"Dana Lee","attendeeEmail":"dana@example.com"}""", DESK),
+            row(HttpMethod.POST, "/api/v1/registrations/{id}/cancel", """
+                    {"reason":null}""", DESK)
+            // ---- audit (B1): add rows here ----
     );
 
     @Autowired
@@ -94,6 +128,15 @@ class AccessMatrixTest {
 
     @MockitoBean
     private StaffAccountService staffAccountService;
+
+    @MockitoBean
+    private WorkshopService workshopService;
+
+    @MockitoBean
+    private RegistrationService registrationService;
+
+    @MockitoBean
+    private WorkshopSearch workshopSearch;
 
     @MockitoBean
     private ActorProvider actorProvider;
@@ -116,6 +159,23 @@ class AccessMatrixTest {
         when(staffAccountService.update(any(), any())).thenReturn(account);
         when(actorProvider.current())
                 .thenReturn(new StaffPrincipal(SAMPLE_ID, "person@example.com", "Some Person", STAFF));
+
+        StaffRef someone = new StaffRef(SAMPLE_ID, "Some Person");
+        LocationView northside = new LocationView(SAMPLE_ID, "Northside Studio");
+        WorkshopResponse workshop = new WorkshopResponse(SAMPLE_ID, "POT-0412", "Pottery wheel basics", null,
+                "Amara Silva", northside, Instant.EPOCH, Instant.EPOCH.plusSeconds(7200), 12, 0, 12, 0,
+                WorkshopStatus.OPEN, 0, Instant.EPOCH, someone, Instant.EPOCH, someone);
+        when(workshopService.get(any())).thenReturn(workshop);
+        when(workshopService.create(any())).thenReturn(workshop);
+        when(workshopService.update(any(), any())).thenReturn(workshop);
+        when(workshopService.cancel(any(), any())).thenReturn(workshop);
+        when(workshopService.activeLocations()).thenReturn(List.of(northside));
+        when(workshopSearch.search(any())).thenReturn(new WorkshopSearchResult(List.of(), 0, 20, 0, "fallback"));
+        RegistrationResponse registration = new RegistrationResponse(SAMPLE_ID, SAMPLE_ID, "Dana Lee",
+                "dana@example.com", RegistrationStatus.ACTIVE, Instant.EPOCH, someone, null, null, null, null, null);
+        when(registrationService.history(any(), any())).thenReturn(List.of(registration));
+        when(registrationService.register(any(), any())).thenReturn(registration);
+        when(registrationService.cancel(any(), any())).thenReturn(new CancelResult(registration, null));
     }
 
     static Stream<Arguments> matrix() {
@@ -141,13 +201,15 @@ class AccessMatrixTest {
         if (caller.role == null) {
             assertThat(status).as("anonymous must be 401").isEqualTo(401);
         } else if (row.allowed().contains(caller.role)) {
-            assertThat(status).as("%s is allowed, so neither 401 nor 403", caller).isNotIn(401, 403);
+            // 2xx rather than just "not 401/403": a typo in a row's body or path
+            // would otherwise pass as an allowed 400 or 404.
+            assertThat(status).as("%s is allowed", caller).isBetween(200, 299);
         } else {
             assertThat(status).as("%s is not allowed", caller).isEqualTo(403);
         }
         if (caller.role == null || !row.allowed().contains(caller.role)) {
             // A refused request must never reach a service.
-            verifyNoInteractions(staffAccountService);
+            verifyNoInteractions(staffAccountService, workshopService, registrationService, workshopSearch);
         }
     }
 

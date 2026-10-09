@@ -84,7 +84,8 @@ class StaffAccountServiceIT {
     @BeforeEach
     void startWithOneAdminSignedIn() {
         // Test-only cleanup; the application itself never deletes accounts.
-        jdbc.execute("TRUNCATE staff_account");
+        // CASCADE: workshops and registrations reference staff (V2/V3).
+        jdbc.execute("TRUNCATE staff_account CASCADE");
         adminId = seed("admin@example.com", "Alex Admin", StaffRole.ADMIN);
         signIn(adminId);
     }
