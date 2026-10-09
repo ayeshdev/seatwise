@@ -273,8 +273,14 @@ class KeycloakIdentityProvisioner implements IdentityProvisioner {
                     .retrieve()
                     .body(JSON_OBJECT);
         } catch (RestClientResponseException e) {
-            log.error("Keycloak refused the provisioner token request ({}); check SEATWISE_PROVISIONER_SECRET",
-                    e.getStatusCode().value());
+            int status = e.getStatusCode().value();
+            // 404 = no such realm at that address (realm not imported, or the admin
+            // base URL points at the wrong service); 400/401 = client or secret rejected.
+            String hint = status == 404
+                    ? "realm '" + config.realm() + "' not found at " + config.adminBaseUrl()
+                            + " - check the realm was imported and SEATWISE_KEYCLOAK_ADMIN_BASE"
+                    : "check SEATWISE_PROVISIONER_SECRET and the seatwise-provisioner client";
+            log.error("Keycloak refused the provisioner token request ({}): {}", status, hint);
             throw unavailable();
         } catch (RestClientException e) {
             log.warn("Keycloak token endpoint unreachable: {}", e.getMessage());
