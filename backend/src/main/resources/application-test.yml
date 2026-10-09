@@ -1,0 +1,6 @@
+# Test-only overrides. The datasource comes from the Testcontainers
+# @ServiceConnection bean, so none is configured here.
+seatwise:
+  oidc:
+    issuer: http://localhost:0/realms/seatwise-test
+    jwks-uri: http://localhost:0/realms/seatwise-test/protocol/openid-connect/certs

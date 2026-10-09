@@ -1,0 +1,4 @@
+# Demo adds seed data (sample workshops, demo Manager/Staff) on top of the schema.
+spring:
+  flyway:
+    locations: classpath:db/migration,classpath:db/demo
