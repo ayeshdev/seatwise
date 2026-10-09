@@ -67,4 +67,12 @@ seatwise:
   search:
     url: ${SEATWISE_SEARCH_URL:http://localhost:7710}
     master-key: ${SEATWISE_SEARCH_MASTER_KEY:dev-search-master-key-change-me}
+    # false = PostgreSQL-only search (searchMode "fallback"), no Meilisearch calls at all.
+    enabled: ${SEATWISE_SEARCH_ENABLED:true}
+    # A list request waits this long for Meilisearch, then answers from PostgreSQL
+    # and skips the index for circuit-open-for.
+    timeout: 500ms
+    circuit-open-for: 30s
+    # Full re-index (heals lost updates), in the centre timezone.
+    reconcile-cron: ${SEATWISE_SEARCH_RECONCILE_CRON:0 30 3 * * *}
   centre-timezone: ${SEATWISE_CENTRE_TIMEZONE:Europe/London}

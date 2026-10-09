@@ -2,8 +2,9 @@ package com.seatwise.search.internal;
 
 /**
  * Finding workshops (FR-FIND). Implementations: {@link JpaWorkshopSearch}
- * (PostgreSQL; the fallback and the reference) and, later, a Meilisearch one
- * behind the same interface that hydrates seat counts from the catalogue.
+ * (PostgreSQL; the fallback and the reference), {@link MeiliWorkshopSearch}
+ * (the index, hydrated from the catalogue) and {@link FallbackWorkshopSearch},
+ * the primary one, which picks between them per request.
  */
 public interface WorkshopSearch {
 
