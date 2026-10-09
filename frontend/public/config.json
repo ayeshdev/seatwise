@@ -1,0 +1,6 @@
+{
+  "idpUrl": "http://localhost:8281",
+  "realm": "seatwise",
+  "clientId": "seatwise-desk",
+  "apiBase": "/api"
+}

@@ -1,0 +1,35 @@
+@import '@fontsource/inter/latin-400.css';
+@import '@fontsource/inter/latin-500.css';
+@import '@fontsource/source-serif-4/latin-600.css';
+@import 'styles/tokens.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    @apply bg-canvas font-sans text-ink antialiased;
+    font-size: 15px;
+  }
+
+  h1,
+  h2,
+  h3 {
+    @apply font-serif font-semibold;
+  }
+
+  input:not([type='checkbox'], [type='radio']),
+  select,
+  textarea {
+    @apply rounded-card;
+  }
+
+  button {
+    @apply rounded-button;
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-accent ring-offset-2 ring-offset-canvas;
+  }
+}
