@@ -96,7 +96,7 @@ the P1 rows.
 | 2.5 | Publish domain events (records in each module root) from services. Listeners arrive in B1. |
 | 2.6 | **`CapacityConcurrencyIT`**: 50 threads, `CountDownLatch` start gate, 20-seat workshop → assert 20 ACTIVE, 30 `WORKSHOP_FULL`, `seats_taken == 20 == count(ACTIVE)`. Second scenario: concurrent cancels of the same row → exactly one wins. Third: concurrent register + capacity edit never violates BR-1/BR-4. |
 | 2.7 | Service tests: duplicate email (case-insensitive), register on cancelled/past workshop, capacity edit below taken, stale version, history includes cancelled rows with actor and time. |
-| 2.8 | `db/demo/R__demo_workshops.sql` (demo profile only): 8–10 workshops across 3 locations covering open / 1 seat left / full / cancelled / past / next week, plus a few registrations (some cancelled). |
+| 2.8 | `DemoWorkshopSeeder` (demo profile only; Java, because rows need the demo staff that are created after Flyway runs): 8–10 workshops across 3 locations covering open / 1 seat left / full / cancelled / past / next week, plus a few registrations (some cancelled). |
 | 2.9 | Fill the remaining `AccessMatrixTest` rows. Review the diff for access control (every endpoint has a policy and a matrix row) and for concurrency safety on the seat paths. |
 
 **Done when:** all P2 tests and the full matrix are green in CI, and a

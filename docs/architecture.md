@@ -157,7 +157,7 @@ flowchart TB
 | Module | Owns (tables) | Public API (module root) | Publishes |
 |---|---|---|---|
 | `accounts` | `staff_account` | `StaffDirectory` (look up active staff by id, `StaffSummary` record) | `StaffAccountCreated`, `StaffRoleChanged`, `StaffAccountDeactivated`, `StaffAccountReactivated`, `StaffPasswordReset` |
-| `workshops` | `workshop`, `location` | `WorkshopCatalogue` (read views), `SeatInventory` (`tryClaimSeat`, `releaseSeat`, `requireBookable`) | `WorkshopScheduled`, `WorkshopUpdated`, `WorkshopCancelled` |
+| `workshops` | `workshop`, `location` | `WorkshopCatalogue` (read views and the search port), `SeatInventory` (`tryClaimSeat`, `releaseSeat`, `availabilityOf`), `WaitlistCounter` (port implemented by `registrations`, so the workshop view can show the waitlist size without reading another module's table) | `WorkshopScheduled`, `WorkshopUpdated`, `WorkshopCancelled` |
 | `registrations` | `registration` | none (leaf module) | `AttendeeRegistered`, `AttendeeWaitlisted`, `RegistrationCancelled`, `WaitlistPromoted` |
 | `audit` | `audit_event` | `AuditTrail` (query) | none |
 | `search` | Meilisearch index `workshops` (no tables) | none (leaf module; owns the `GET /api/v1/workshops` list/search endpoint) | none |
@@ -349,6 +349,24 @@ UPDATE registration
 -- was ACTIVE → release the seat (seats_taken - 1), then try the waitlist
 ```
 
+### One lock order everywhere
+
+Every path that touches seats takes the **workshop row lock first**, then
+touches that workshop's registration rows:
+
+- Register gets the lock from the claim `UPDATE`. When the claim fails,
+  `availabilityOf` re-reads the row `FOR NO KEY UPDATE` to say *why*
+  (not found, not open, full). It also catches the case where a seat was
+  freed in between, and the retry can't lose because the lock is held.
+- Cancel reads the registration's workshop, locks that workshop through
+  `availabilityOf`, then runs the conditional status `UPDATE`.
+- Workshop edits, cancellation and waitlist promotion lock the workshop row
+  with `SELECT … FOR UPDATE` before anything else.
+
+With a single order, concurrent bookings, cancellations and edits on the same
+workshop queue up instead of deadlocking. The status read under the lock is
+the one being changed, so a seat can never be released twice.
+
 ### Waitlist (bonus)
 
 - When a workshop is full, staff can choose **"Add to waitlist"**. The row is
@@ -358,6 +376,9 @@ UPDATE registration
   oldest `WAITLISTED` row for that workshop (`FOR UPDATE SKIP LOCKED`). It
   flips that row to `ACTIVE` with `promoted_at = now()`, so the seat passes
   straight to them and `seats_taken` never dips.
+- When a Manager **raises the capacity** of a workshop with people waiting,
+  the new seats go to the head of the waitlist in the same transaction, so
+  walk-ins can't overtake people already queued.
 - The UI flags promoted attendees as **"Promoted from waitlist — call to
   confirm"**. Attendees have no accounts, so staff phone them, which matches
   how the centre already works. Declining is just a normal cancel, which
@@ -830,7 +851,6 @@ seatwise/
 ├── backend/                 Spring Boot app (Gradle wrapper, Dockerfile)
 │   └── src/main/java/com/seatwise/{accounts,workshops,registrations,audit,search,common}/
 │   └── src/main/resources/db/migration/   V1__… Flyway
-│   └── src/main/resources/db/demo/        R__demo_workshops.sql (demo profile only)
 ├── frontend/                Angular app seatwise-desk (pnpm, Dockerfile, nginx/desk.conf.template)
 ├── infra/
 │   ├── keycloak/            seatwise-realm.json + production Dockerfile
