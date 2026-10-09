@@ -1,0 +1,28 @@
+# Environment
+.env
+.env.local
+
+# Backend
+backend/build/
+backend/.gradle/
+backend/out/
+*.class
+hs_err_pid*.log
+replay_pid*.log
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.angular/
+frontend/coverage/
+frontend/test-results/
+frontend/playwright-report/
+frontend/blob-report/
+node_modules/
+
+# IDE / OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
