@@ -29,6 +29,7 @@ public enum ErrorCode {
     // failures that don't map to a business rule.
     CONFLICT(HttpStatus.CONFLICT, "That change conflicts with existing data"),
     REQUEST_NOT_SUPPORTED(HttpStatus.BAD_REQUEST, "This request isn't supported"),
+    SERVICE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "Seatwise is temporarily unavailable"),
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "Something went wrong on our side");
 
     private final HttpStatus status;

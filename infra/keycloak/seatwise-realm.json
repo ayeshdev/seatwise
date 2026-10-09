@@ -95,7 +95,7 @@
       "enabled": true,
       "publicClient": false,
       "clientAuthenticatorType": "client-secret",
-      "secret": "${SEATWISE_PROVISIONER_SECRET:dev-provisioner-secret}",
+      "secret": "${SEATWISE_PROVISIONER_SECRET}",
       "protocol": "openid-connect",
       "standardFlowEnabled": false,
       "implicitFlowEnabled": false,
@@ -109,7 +109,7 @@
       "enabled": true,
       "serviceAccountClientId": "seatwise-provisioner",
       "clientRoles": {
-        "realm-management": ["manage-users", "view-users", "query-users"]
+        "realm-management": ["manage-users", "view-users"]
       }
     }
   ]

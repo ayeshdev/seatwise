@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
@@ -29,6 +30,8 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * Staff account lifecycle. Keycloak and the database are two systems without
@@ -98,7 +101,9 @@ public class StaffAccountService {
         }
         requirePasswordWithoutEmail(request.temporaryPassword(), email);
 
-        UUID id = identity.createUser(email, fullName, request.temporaryPassword(), true);
+        UUID id = createKeycloakUser(email, fullName, request.temporaryPassword());
+        CreateCompensation compensation = new CreateCompensation(id);
+        compensateIfTheTransactionRollsBack(compensation);
         try {
             StaffAccountEntity account = repository.saveAndFlush(
                     new StaffAccountEntity(id, email, fullName, request.role(), actor, clock.instant()));
@@ -106,7 +111,7 @@ public class StaffAccountService {
                     id, email, fullName, request.role(), actor, account.getCreatedAt()));
             return StaffAccountResponse.from(account);
         } catch (RuntimeException e) {
-            compensateCreate(id, e);
+            compensation.run(e);
             throw e;
         }
     }
@@ -274,16 +279,84 @@ public class StaffAccountService {
         }
     }
 
-    private void compensateCreate(UUID identityId, RuntimeException cause) {
+    /**
+     * Creates the Keycloak user. If the call fails as "unavailable" the user may
+     * still exist (the request can time out after Keycloak committed it, or its
+     * Location header may be unusable), and the caller never learns the id. So
+     * look the user up by email and remove it before reporting the failure;
+     * otherwise a retry would hit EMAIL_IN_USE for an account nobody can see.
+     */
+    private UUID createKeycloakUser(String email, String fullName, String password) {
         try {
-            identity.deleteUser(identityId);
-            log.warn("Staff account insert failed; removed the Keycloak user {} again", identityId);
-        } catch (RuntimeException compensationFailure) {
-            // Leaves an orphan Keycloak user without a staff row. It can't sign in
-            // to anything (no row = ACCOUNT_INACTIVE), but an operator should clean it up.
-            log.error("Could not remove orphaned Keycloak user {} after a failed insert", identityId,
-                    compensationFailure);
-            cause.addSuppressed(compensationFailure);
+            return identity.createUser(email, fullName, password, true);
+        } catch (DomainException e) {
+            if (e.code() == ErrorCode.IDENTITY_UNAVAILABLE) {
+                removeUserIfItWasCreated(email, e);
+            }
+            throw e;
+        }
+    }
+
+    private void removeUserIfItWasCreated(String email, DomainException cause) {
+        try {
+            identity.findUserIdByEmail(email).ifPresent(orphan -> {
+                IdentityRetry.runForCompensation(
+                        "Remove unconfirmed Keycloak user", () -> identity.deleteUser(orphan));
+                log.warn("Keycloak create did not confirm; removed the user {} that it had created", orphan);
+            });
+        } catch (RuntimeException lookupOrDeleteFailure) {
+            log.error("Keycloak create did not confirm and the user for {} could not be checked or removed; "
+                    + "a Keycloak user without a staff account may exist", email, lookupOrDeleteFailure);
+            cause.addSuppressed(lookupOrDeleteFailure);
+        }
+    }
+
+    /**
+     * The insert is flushed inside {@code create}, but the transaction can still
+     * fail at commit (deferred constraints, a before-commit listener, a lost
+     * connection). The synchronization catches that case, which the in-method
+     * catch cannot see.
+     */
+    private static void compensateIfTheTransactionRollsBack(CreateCompensation compensation) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCompletion(int status) {
+                if (status != STATUS_COMMITTED) {
+                    compensation.run(null);
+                }
+            }
+        });
+    }
+
+    /** Deletes the just-created Keycloak user, at most once however many paths ask for it. */
+    private final class CreateCompensation {
+        private final UUID identityId;
+        private final AtomicBoolean done = new AtomicBoolean();
+
+        CreateCompensation(UUID identityId) {
+            this.identityId = identityId;
+        }
+
+        void run(RuntimeException cause) {
+            if (!done.compareAndSet(false, true)) {
+                return;
+            }
+            try {
+                IdentityRetry.runForCompensation(
+                        "Staff account compensation", () -> identity.deleteUser(identityId));
+                log.warn("Staff account was not saved; removed the Keycloak user {} again", identityId);
+            } catch (RuntimeException compensationFailure) {
+                // Leaves an orphan Keycloak user without a staff row. It can't sign in
+                // to anything (no row = ACCOUNT_INACTIVE), but an operator should clean it up.
+                log.error("Could not remove orphaned Keycloak user {} after a failed staff account create",
+                        identityId, compensationFailure);
+                if (cause != null) {
+                    cause.addSuppressed(compensationFailure);
+                }
+            }
         }
     }
 

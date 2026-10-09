@@ -10,7 +10,9 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.AuthenticationServiceException;
 import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.access.AccessDeniedHandler;
 import tools.jackson.databind.json.JsonMapper;
@@ -36,8 +38,18 @@ public class ProblemSecurityHandler implements AuthenticationEntryPoint, AccessD
                     "Your account is not active. Ask an administrator if you need access.");
             return;
         }
-        // RFC 6750: a 401 for a bearer-protected resource names the scheme.
-        response.setHeader(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
+        if (ex instanceof AuthenticationUnavailableException || ex instanceof AuthenticationServiceException) {
+            // A dependency (the database) failed while deciding who this is; the
+            // caller's token may be fine, so this is a retryable 503, not a 401.
+            write(request, response, ErrorCode.SERVICE_UNAVAILABLE,
+                    "Seatwise is having trouble right now. Please try again in a moment.");
+            return;
+        }
+        // RFC 6750: a 401 for a bearer-protected resource names the scheme, and
+        // says invalid_token when a token was presented but refused. A request
+        // with no token at all gets the bare challenge.
+        response.setHeader(HttpHeaders.WWW_AUTHENTICATE,
+                ex instanceof OAuth2AuthenticationException ? "Bearer error=\"invalid_token\"" : "Bearer");
         write(request, response, ErrorCode.UNAUTHENTICATED, "Please sign in to continue.");
     }
 

@@ -3,7 +3,9 @@ package com.seatwise.accounts.internal;
 import com.seatwise.common.config.SeatwiseProperties;
 import com.seatwise.common.error.DomainException;
 import com.seatwise.common.security.StaffRole;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
@@ -49,17 +51,19 @@ class AdminBootstrapRunner implements ApplicationRunner {
         String email = config.adminEmail();
         log.info("Admin bootstrap: no active Admin found, provisioning {}", email);
         try {
-            UUID id = IdentityRetry.call("Admin bootstrap", () -> identity.findUserIdByEmail(email)
-                    .map(existing -> {
-                        log.info("Admin bootstrap: linking existing Keycloak user {}", existing);
-                        return existing;
-                    })
-                    .orElseGet(() -> identity.createUser(
-                            email, config.adminFullName(), config.adminPassword(), config.passwordTemporary())));
+            AtomicBoolean linkedExisting = new AtomicBoolean();
+            UUID id = IdentityRetry.call("Admin bootstrap", () -> {
+                Optional<UUID> existing = identity.findUserIdByEmail(email);
+                linkedExisting.set(existing.isPresent());
+                existing.ifPresent(found -> log.info("Admin bootstrap: linking existing Keycloak user {}", found));
+                return existing.orElseGet(() -> identity.createUser(
+                        email, config.adminFullName(), config.adminPassword(), config.passwordTemporary()));
+            });
             boolean recovered = accounts.ensureSystemAccount(id, email, config.adminFullName(), StaffRole.ADMIN);
-            if (recovered) {
-                // The row existed but was demoted or deactivated: make sure the
-                // Keycloak side can sign in again too.
+            if (recovered || linkedExisting.get()) {
+                // A linked Keycloak user may have been disabled by hand (it is not
+                // ours to assume otherwise), and a recovered row may have been
+                // deactivated; in both cases the Admin must be able to sign in.
                 IdentityRetry.run("Admin bootstrap", () -> identity.setEnabled(id, true));
             }
             log.info("Admin bootstrap: {} is an active Admin (temporary password: {})",
