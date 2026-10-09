@@ -4,7 +4,8 @@ import com.seatwise.common.config.SeatwiseProperties;
 import java.util.List;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.security.config.Customizer;
+import org.springframework.core.convert.converter.Converter;
+import org.springframework.security.authentication.AbstractAuthenticationToken;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -19,14 +20,26 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.web.SecurityFilterChain;
+import tools.jackson.databind.json.JsonMapper;
 
 @Configuration(proxyBeanMethods = false)
 @EnableWebSecurity
 @EnableMethodSecurity
 public class SecurityConfig {
 
+    /**
+     * @param staffAuthenticationConverter maps the token's {@code sub} to the
+     *     staff account and its role. It is supplied by the accounts module as
+     *     a plain {@link Converter} bean, so {@code common} never imports a
+     *     domain module.
+     */
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain securityFilterChain(
+            HttpSecurity http,
+            Converter<Jwt, ? extends AbstractAuthenticationToken> staffAuthenticationConverter,
+            JsonMapper jsonMapper)
+            throws Exception {
+        ProblemSecurityHandler problems = new ProblemSecurityHandler(jsonMapper);
         http
                 // Bearer tokens only, no cookies or sessions, so CSRF has nothing to protect.
                 .csrf(AbstractHttpConfigurer::disable)
@@ -41,7 +54,13 @@ public class SecurityConfig {
                         .permitAll()
                         .anyRequest()
                         .authenticated())
-                .oauth2ResourceServer(oauth -> oauth.jwt(Customizer.withDefaults()));
+                .exceptionHandling(e -> e.authenticationEntryPoint(problems).accessDeniedHandler(problems))
+                .oauth2ResourceServer(oauth -> oauth
+                        // Token failures (and AccountInactiveException from the converter)
+                        // are reported by this entry point, not the exceptionHandling one.
+                        .authenticationEntryPoint(problems)
+                        .accessDeniedHandler(problems)
+                        .jwt(jwt -> jwt.jwtAuthenticationConverter(staffAuthenticationConverter)));
         return http.build();
     }
 
