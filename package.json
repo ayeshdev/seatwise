@@ -9,7 +9,7 @@
     "stack:logs": "docker compose logs --tail=100 -f",
     "infra:up": "docker compose up -d db idp search --wait",
     "backend:build": "./backend/gradlew -p backend build",
-    "backend:run": "./backend/gradlew -p backend bootRun --args=--spring.profiles.active=dev,demo",
+    "backend:run": "./backend/gradlew -p backend bootRun --args=\"--spring.profiles.active=dev,demo --server.port=8280\"",
     "frontend:install": "pnpm -C frontend install",
     "frontend:start": "pnpm -C frontend start",
     "frontend:check": "pnpm -C frontend lint && pnpm -C frontend test && pnpm -C frontend build",
