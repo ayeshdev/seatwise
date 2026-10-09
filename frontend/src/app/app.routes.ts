@@ -9,7 +9,7 @@ export const routes: Routes = [
     path: 'workshops',
     title: 'Workshops',
     canMatch: [roleGuard('MANAGER', 'STAFF')],
-    loadComponent: () => import('@features/workshops/workshops-page').then((m) => m.WorkshopsPage),
+    loadChildren: () => import('@features/workshops/workshops.routes').then((m) => m.WORKSHOP_ROUTES),
   },
   {
     path: 'activity',
