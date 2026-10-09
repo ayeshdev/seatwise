@@ -594,6 +594,58 @@ REST + JSON under `/api/v1`. The OpenAPI document is served by springdoc at
 | 409 | `EMAIL_IN_USE` / `LAST_ADMIN` / `SELF_MODIFICATION` | Account rules |
 | 503 | `IDENTITY_UNAVAILABLE` | Keycloak admin API unreachable during account changes |
 
+### Payload shapes
+
+Timestamps are ISO-8601 UTC strings (`2026-10-17T09:30:00Z`). Ids are UUID
+strings. Field names are camelCase.
+
+```ts
+// Shared
+type Page<T> = { items: T[]; page: number; size: number; totalItems: number }; // page is zero-based
+type StaffRef = { id: string; fullName: string };
+
+// Accounts
+type Me = { id: string; email: string; fullName: string; role: 'ADMIN' | 'MANAGER' | 'STAFF' };
+type StaffAccount = { id: string; email: string; fullName: string; role: Me['role'];
+                      active: boolean; createdAt: string; updatedAt: string; version: number };
+
+// Workshops
+type Location = { id: string; name: string };
+type WorkshopStatus = 'OPEN' | 'FULL' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+type Workshop = {
+  id: string; code: string; title: string; description: string | null; instructor: string;
+  location: Location; startsAt: string; endsAt: string;
+  capacity: number; seatsTaken: number; seatsLeft: number; waitlistCount: number;
+  status: WorkshopStatus; version: number;
+  createdAt: string; createdBy: StaffRef; updatedAt: string; updatedBy: StaffRef;
+};
+type WorkshopSummary = Pick<Workshop, 'id' | 'code' | 'title' | 'instructor' | 'location' |
+  'startsAt' | 'endsAt' | 'capacity' | 'seatsTaken' | 'seatsLeft' | 'status'>;
+type WorkshopSearchResult = Page<WorkshopSummary> & { searchMode: 'index' | 'fallback' };
+type WorkshopRequest = {            // POST /workshops and PUT /workshops/{id}
+  code: string; title: string; description?: string | null; instructor: string;
+  locationId: string; startsAt: string; endsAt: string; capacity: number;
+  version?: number;                 // required on PUT
+};
+
+// Registrations
+type RegistrationStatus = 'ACTIVE' | 'WAITLISTED' | 'CANCELLED';
+type Registration = {
+  id: string; workshopId: string; attendeeName: string; attendeeEmail: string;
+  status: RegistrationStatus; registeredAt: string; registeredBy: StaffRef;
+  promotedAt: string | null;        // set when moved off the waitlist
+  waitlistPosition: number | null;  // 1-based, only while WAITLISTED
+  cancelledAt: string | null; cancelledBy: StaffRef | null; cancellationReason: string | null;
+};
+type RegisterRequest = { attendeeName: string; attendeeEmail: string; joinWaitlistIfFull?: boolean };
+type CancelRequest = { reason?: string | null };
+type CancelResult = { cancelled: Registration; promoted: Registration | null };
+```
+
+`GET /workshops/{id}/registrations` returns `Registration[]` (the full history
+of one workshop, newest first, optional `status` filter). It isn't paged:
+a workshop has at most a few hundred rows.
+
 ---
 
 ## 10. Frontend: Seatwise Desk
