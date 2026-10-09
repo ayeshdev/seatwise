@@ -8,6 +8,7 @@ import com.seatwise.accounts.StaffPasswordReset;
 import com.seatwise.accounts.StaffRoleChanged;
 import com.seatwise.common.error.DomainException;
 import com.seatwise.common.error.ErrorCode;
+import com.seatwise.common.error.FieldErrorItem;
 import com.seatwise.common.security.ActorProvider;
 import com.seatwise.common.security.StaffRole;
 import com.seatwise.common.web.PageResponse;
@@ -16,6 +17,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -94,6 +96,7 @@ public class StaffAccountService {
         if (repository.findByEmailIgnoreCase(email).isPresent()) {
             throw emailInUse();
         }
+        requirePasswordWithoutEmail(request.temporaryPassword(), email);
 
         UUID id = identity.createUser(email, fullName, request.temporaryPassword(), true);
         try {
@@ -169,11 +172,22 @@ public class StaffAccountService {
     @Transactional
     public void resetPassword(UUID id, PasswordResetRequest request) {
         UUID actor = actors.currentStaffId();
-        load(id);
+        StaffAccountEntity account = load(id);
+        requirePasswordWithoutEmail(request.temporaryPassword(), account.getEmail());
         // The row itself is not touched: bumping its version would make an
         // Admin's open edit form stale for a change that isn't on the form.
         events.publishEvent(new StaffPasswordReset(id, actor, clock.instant()));
         identity.resetPassword(id, request.temporaryPassword(), true);
+    }
+
+    // Keycloak's notEmail policy only rejects a password equal to the email, so
+    // the stricter "doesn't contain it" rule the desk promises is checked here.
+    private static void requirePasswordWithoutEmail(String password, String email) {
+        if (password.toLowerCase(Locale.ROOT).contains(email.toLowerCase(Locale.ROOT))) {
+            String message = "The password can't contain the email address.";
+            throw new DomainException(ErrorCode.VALIDATION_FAILED, message,
+                    Map.of("errors", List.of(new FieldErrorItem("temporaryPassword", message))));
+        }
     }
 
     // ---- System operations for startup seeding (no signed-in actor) ----

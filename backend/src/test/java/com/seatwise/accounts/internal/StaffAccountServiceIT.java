@@ -126,6 +126,16 @@ class StaffAccountServiceIT {
     }
 
     @Test
+    void passwordContainingTheEmailIsRefusedBeforeKeycloakIsCalled() {
+        // Act / Assert
+        assertThatThrownBy(() -> service.create(new CreateStaffAccountRequest(
+                        "dana@example.com", "Dana Lee", StaffRole.STAFF, "xDANA@example.com1")))
+                .isInstanceOfSatisfying(DomainException.class,
+                        e -> assertThat(e.code()).isEqualTo(ErrorCode.VALIDATION_FAILED));
+        verify(identity, never()).createUser(anyString(), anyString(), anyString(), anyBoolean());
+    }
+
+    @Test
     void keycloakUserIsDeletedAgainWhenTheInsertFails() {
         // Arrange: Keycloak hands back an id that already has a row, so the insert violates the PK.
         when(identity.createUser(anyString(), anyString(), anyString(), anyBoolean())).thenReturn(adminId);

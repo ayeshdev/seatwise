@@ -52,6 +52,11 @@ public class SecurityConfig {
                                 "/swagger-ui/**",
                                 "/swagger-ui.html")
                         .permitAll()
+                        // Coarse URL rules in front of the method-level @PreAuthorize: a
+                        // caller without the role is refused before request bodies are
+                        // even validated, so a 400 never reveals an endpoint's shape.
+                        .requestMatchers("/api/v1/staff-accounts", "/api/v1/staff-accounts/**")
+                        .hasRole(StaffRole.ADMIN.name())
                         .anyRequest()
                         .authenticated())
                 .exceptionHandling(e -> e.authenticationEntryPoint(problems).accessDeniedHandler(problems))

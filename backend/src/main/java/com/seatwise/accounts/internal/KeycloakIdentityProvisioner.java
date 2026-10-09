@@ -29,6 +29,7 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
+import org.springframework.web.util.DefaultUriBuilderFactory;
 
 /**
  * Talks to the Keycloak Admin REST API as the confidential client
@@ -49,7 +50,7 @@ class KeycloakIdentityProvisioner implements IdentityProvisioner {
     private static final Duration EXPIRY_MARGIN = Duration.ofSeconds(30);
 
     static final String PASSWORD_REJECTED =
-            "Password must be at least 10 characters and must not contain the email address";
+            "Password must be at least 10 characters and must not be the email address";
 
     private final RestClient http;
     private final SeatwiseProperties.Keycloak config;
@@ -67,8 +68,12 @@ class KeycloakIdentityProvisioner implements IdentityProvisioner {
                 .build();
         JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(client);
         requestFactory.setReadTimeout(Duration.ofSeconds(10));
+        // Strictly encode URI variables: the default leaves '+' in a query value
+        // as-is, which Keycloak decodes as a space and then misses the user.
+        DefaultUriBuilderFactory uriFactory = new DefaultUriBuilderFactory(stripTrailingSlash(config.adminBaseUrl()));
+        uriFactory.setEncodingMode(DefaultUriBuilderFactory.EncodingMode.VALUES_ONLY);
         this.http = RestClient.builder()
-                .baseUrl(stripTrailingSlash(config.adminBaseUrl()))
+                .uriBuilderFactory(uriFactory)
                 .requestFactory(requestFactory)
                 .build();
     }

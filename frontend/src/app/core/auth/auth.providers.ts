@@ -1,6 +1,8 @@
 import { EnvironmentProviders, Provider, makeEnvironmentProviders } from '@angular/core';
 import {
+  AutoRefreshTokenService,
   INCLUDE_BEARER_TOKEN_INTERCEPTOR_CONFIG,
+  UserActivityService,
   provideKeycloak,
   withAutoRefreshToken,
 } from 'keycloak-angular';
@@ -33,6 +35,8 @@ export function provideAuth(config: RuntimeConfig): EnvironmentProviders {
       config: { url: config.idpUrl, realm: config.realm, clientId: config.clientId },
       initOptions: { onLoad: 'login-required', pkceMethod: 'S256', checkLoginIframe: false },
       features: [withAutoRefreshToken({ sessionTimeout: IDLE_TIMEOUT_MS, onInactivityTimeout: 'login' })],
+      // The auto-refresh feature injects these; without them bootstrap fails with NG0201.
+      providers: [AutoRefreshTokenService, UserActivityService],
     }),
     bearer,
   ]);
